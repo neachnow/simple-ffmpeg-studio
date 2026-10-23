@@ -6,7 +6,7 @@
 | --- | --- | --- | --- | --- |
 | 2026-10-24 | 建立项目开发约定 | 已完成 | `git diff --cached --check -- AGENTS.md` 通过 | `cd84678` |
 | 2026-10-24 | M0：项目骨架与开发约定 | 已完成 | Python 3.12 `env` 中执行 `pytest`：3 passed；执行 `ruff check .`：通过 | `feat: initialize application scaffold` |
-| 2026-10-24 | M1：FFmpeg 核心能力 | 等待实机验证 | 单元测试 `pytest`：11 passed；`ruff check .`：通过。系统未发现 `ffmpeg`/`ffprobe`，因此尚不能用 `source` 视频完成真实探测与转码测试 | `feat: add FFmpeg core primitives` |
+| 2026-10-24 | M1：FFmpeg 核心能力 | 已完成 | 单元测试 `pytest`：11 passed；`ruff check .`：通过。使用 `source` 视频完成项目代码 `ffprobe` 探测（245.362 秒、2 条流）和 FFmpeg 1 秒 `-c copy` 临时输出验证（690,844 字节），临时输出已清理 | `629cf97` |
 
 ## 环境记录
 
