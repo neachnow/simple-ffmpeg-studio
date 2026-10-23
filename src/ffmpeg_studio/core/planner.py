@@ -23,6 +23,13 @@ _AUDIO_CODECS = {
     "wav": ("pcm_s16le", None),
     "flac": ("flac", None),
 }
+_ROTATIONS = {
+    "none": None,
+    "clockwise": "transpose=1",
+    "counterclockwise": "transpose=2",
+    "flip_horizontal": "hflip",
+    "flip_vertical": "vflip",
+}
 
 
 def unique_output(folder: Path, stem: str, extension: str, reserved: set[Path]) -> Path:
@@ -46,6 +53,15 @@ def plan_jobs(
     segment_seconds: int | None = None,
     audio_format: str = "mp3",
     quality: int = 23,
+    start_seconds: int = 0,
+    end_seconds: int | None = None,
+    rotation: str = "none",
+    crop: tuple[int, int, int, int] | None = None,
+    video_size: tuple[int, int] | None = None,
+    audio_bitrate: str = "192k",
+    sample_rate: int | None = None,
+    channels: int | None = None,
+    gain_db: int = 0,
     reserved: set[Path] | None = None,
 ) -> list[PlannedJob]:
     """Plan transcode, video split, or audio extraction from one source.
@@ -55,12 +71,36 @@ def plan_jobs(
     """
     if not source.is_file():
         raise ValueError("请先选择有效的源视频文件")
-    if operation not in {"transcode", "split", "audio"}:
+    if operation not in {"transcode", "split", "audio", "trim"}:
         raise ValueError("未知处理功能")
     if not 0 <= quality <= 51:
         raise ValueError("质量参数 CRF 必须在 0 到 51 之间")
     if operation == "audio" and audio_format not in _AUDIO_CODECS:
         raise ValueError("不支持的音频格式")
+    if audio_bitrate not in {"128k", "192k", "256k", "320k"}:
+        raise ValueError("不支持的音频码率")
+    if sample_rate not in {None, 44100, 48000}:
+        raise ValueError("不支持的采样率")
+    if channels not in {None, 1, 2}:
+        raise ValueError("声道数只能是 1 或 2")
+    if not -12 <= gain_db <= 12:
+        raise ValueError("音量增益必须在 -12 到 12 dB 之间")
+    if rotation not in _ROTATIONS:
+        raise ValueError("不支持的旋转或翻转选项")
+    if operation == "trim":
+        if duration_seconds is None or duration_seconds <= 0:
+            raise ValueError("无法读取视频时长，不能裁剪")
+        if start_seconds < 0 or start_seconds >= duration_seconds:
+            raise ValueError("开始时间必须在视频时长范围内")
+        if end_seconds is not None and (end_seconds <= start_seconds
+                                        or end_seconds > duration_seconds):
+            raise ValueError("结束时间必须晚于开始时间且不超过视频时长")
+        if crop is not None:
+            width, height, x, y = crop
+            if video_size is None or min(width, height) <= 0 or min(x, y) < 0:
+                raise ValueError("裁切区域参数无效")
+            if x + width > video_size[0] or y + height > video_size[1]:
+                raise ValueError("裁切区域超出原视频画面")
     if segment_seconds is not None:
         if segment_seconds <= 0:
             raise ValueError("分段时长必须大于 0 秒")
@@ -75,10 +115,12 @@ def plan_jobs(
          for i in range(math.ceil(duration_seconds / segment_seconds))]
         if segment_seconds is not None else [(0, duration_seconds)]
     )
+    if operation == "trim":
+        segments = [(start_seconds, (end_seconds or duration_seconds) - start_seconds)]
     jobs: list[PlannedJob] = []
     for index, (start, length) in enumerate(segments, 1):
         stem = source.stem + (f"_{index:03d}" if segment_seconds is not None else "")
-        tag = {"transcode": "转码", "split": "分割", "audio": "音频"}[operation]
+        tag = {"transcode": "转码", "split": "分割", "audio": "音频", "trim": "裁剪"}[operation]
         if operation == "transcode":
             output = unique_output(output_folder, stem + "_transcoded", "mp4", occupied)
             command = build_transcode_command(
@@ -97,8 +139,24 @@ def plan_jobs(
                 "-crf", str(quality), "-c:a", "aac", str(output),
             ]
             command = tuple(command_parts)
+        elif operation == "trim":
+            output = unique_output(output_folder, stem + "_trimmed", "mp4", occupied)
+            command_parts = [str(ffmpeg), "-hide_banner", "-nostdin", "-n",
+                             "-ss", f"{start:.3f}", "-i", str(source),
+                             "-t", f"{length:.3f}", "-map", "0:v:0", "-map", "0:a?"]
+            filters = []
+            if crop is not None:
+                width, height, x, y = crop
+                filters.append(f"crop={width}:{height}:{x}:{y}")
+            if _ROTATIONS[rotation]:
+                filters.append(_ROTATIONS[rotation])
+            if filters:
+                command_parts += ["-vf", ",".join(filters)]
+            command_parts += ["-c:v", "libx264", "-crf", str(quality),
+                              "-c:a", "aac", str(output)]
+            command = tuple(command_parts)
         else:
-            codec, bitrate = _AUDIO_CODECS[audio_format]
+            codec, _ = _AUDIO_CODECS[audio_format]
             output = unique_output(output_folder, stem + "_audio", audio_format, occupied)
             command_parts = [str(ffmpeg), "-hide_banner", "-nostdin", "-n"]
             if segment_seconds is not None:
@@ -107,8 +165,14 @@ def plan_jobs(
             if segment_seconds is not None:
                 command_parts += ["-t", f"{length:.3f}"]
             command_parts += ["-vn", "-map", "0:a:0", "-c:a", codec]
-            if bitrate is not None:
-                command_parts += ["-b:a", bitrate]
+            if audio_format in {"mp3", "aac"}:
+                command_parts += ["-b:a", audio_bitrate]
+            if sample_rate is not None:
+                command_parts += ["-ar", str(sample_rate)]
+            if channels is not None:
+                command_parts += ["-ac", str(channels)]
+            if gain_db:
+                command_parts += ["-af", f"volume={gain_db}dB"]
             command = tuple([*command_parts, str(output)])
         jobs.append(PlannedJob(f"{tag} · {index}/{len(segments)}" if len(segments) > 1 else tag,
                                output, command, length))

@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QStackedWidget,
     QStatusBar,
@@ -112,7 +113,7 @@ class MainWindow(QMainWindow):
         self.tabs.setExpanding(False)
         for title in (
             "概览 / Overview", "转码 / Transcode", "视频分割 / Split Video",
-            "提取音频 / Extract Audio", "设置 / Settings",
+            "裁剪 / Trim", "提取音频 / Extract Audio", "设置 / Settings",
         ):
             self.tabs.addTab(title)
         layout.addWidget(self.tabs)
@@ -123,14 +124,22 @@ class MainWindow(QMainWindow):
         left.addWidget(self._source_card())
         self.pages = QStackedWidget()
         for page in (self._overview_page(), self._transcode_page(), self._split_page(),
-                     self._audio_page(), self._settings_page()):
+                     self._trim_page(), self._audio_page(), self._settings_page()):
             self.pages.addWidget(page)
-        left.addWidget(self.pages, 1)
+        self.page_scroll = QScrollArea()
+        self.page_scroll.setWidgetResizable(True)
+        self.page_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.page_scroll.setWidget(self.pages)
+        left.addWidget(self.page_scroll, 1)
         columns.addLayout(left, 7)
         columns.addWidget(self._status_card(), 4)
         layout.addLayout(columns, 1)
-        self.tabs.currentChanged.connect(self.pages.setCurrentIndex)
+        self.tabs.currentChanged.connect(self._change_page)
         return root
+
+    def _change_page(self, index: int) -> None:
+        self.pages.setCurrentIndex(index)
+        self.page_scroll.verticalScrollBar().setValue(0)
 
     def _source_card(self) -> QFrame:
         card, layout = self._card("源视频")
@@ -224,11 +233,68 @@ class MainWindow(QMainWindow):
         for name in ("MP3", "AAC", "WAV", "FLAC"):
             self.audio_format.addItem(name, name.lower())
         form.addRow("输出格式", self.audio_format)
+        self.audio_bitrate = QComboBox()
+        for bitrate in ("128k", "192k", "256k", "320k"):
+            self.audio_bitrate.addItem(bitrate, bitrate)
+        self.audio_bitrate.setCurrentIndex(1)
+        form.addRow("音频码率", self.audio_bitrate)
+        self.audio_sample_rate = QComboBox()
+        for label, value in (("保持原采样率", None), ("44.1 kHz", 44100), ("48 kHz", 48000)):
+            self.audio_sample_rate.addItem(label, value)
+        form.addRow("采样率", self.audio_sample_rate)
+        self.audio_channels = QComboBox()
+        for label, value in (("保持原声道", None), ("单声道", 1), ("立体声", 2)):
+            self.audio_channels.addItem(label, value)
+        form.addRow("声道", self.audio_channels)
+        self.audio_gain = QSpinBox()
+        self.audio_gain.setRange(-12, 12)
+        self.audio_gain.setSuffix(" dB")
+        form.addRow("音量增益", self.audio_gain)
         button = QPushButton("添加音频提取任务")
         button.setObjectName("primary")
         button.clicked.connect(lambda: self._add_jobs("audio"))
         layout.addWidget(button)
         layout.addStretch()
+        return page
+
+    def _trim_page(self) -> QFrame:
+        page, layout, form = self._form_page(
+            "裁剪与变换",
+            "按开始和结束时间截取视频，可选旋转、翻转及画面裁切。结束时间填 0 表示到片尾。",
+        )
+        self.trim_start = QSpinBox()
+        self.trim_start.setRange(0, 864000)
+        self.trim_start.setSuffix(" 秒")
+        self.trim_end = QSpinBox()
+        self.trim_end.setRange(0, 864000)
+        self.trim_end.setSuffix(" 秒（0 = 片尾）")
+        form.addRow("开始时间", self.trim_start)
+        form.addRow("结束时间", self.trim_end)
+        self.trim_rotation = QComboBox()
+        for label, value in (("不变", "none"), ("顺时针 90°", "clockwise"),
+                             ("逆时针 90°", "counterclockwise"),
+                             ("水平翻转", "flip_horizontal"), ("垂直翻转", "flip_vertical")):
+            self.trim_rotation.addItem(label, value)
+        form.addRow("旋转 / 翻转", self.trim_rotation)
+        self.crop_width = QSpinBox()
+        self.crop_width.setRange(0, 16384)
+        self.crop_width.setSpecialValueText("不裁切")
+        self.crop_height = QSpinBox()
+        self.crop_height.setRange(0, 16384)
+        self.crop_height.setSpecialValueText("不裁切")
+        self.crop_x = QSpinBox()
+        self.crop_x.setRange(0, 16384)
+        self.crop_y = QSpinBox()
+        self.crop_y.setRange(0, 16384)
+        for label, field in (("裁切宽度", self.crop_width), ("裁切高度", self.crop_height),
+                             ("左上 X", self.crop_x), ("左上 Y", self.crop_y)):
+            form.addRow(label, field)
+        button = QPushButton("添加裁剪任务")
+        button.setObjectName("primary")
+        button.clicked.connect(lambda: self._add_jobs("trim"))
+        layout.addWidget(button)
+        layout.addStretch()
+        page.setMinimumHeight(515)
         return page
 
     def _settings_page(self) -> QFrame:
@@ -382,6 +448,14 @@ class MainWindow(QMainWindow):
         mode, seconds = ((self.split_mode, self.split_seconds) if operation == "split"
                          else (self.audio_mode, self.audio_seconds))
         segment = seconds.value() if operation != "transcode" and mode.currentData() else None
+        if operation == "trim":
+            segment = None
+        crop = None
+        if operation == "trim" and (self.crop_width.value() or self.crop_height.value()):
+            crop = (self.crop_width.value(), self.crop_height.value(),
+                    self.crop_x.value(), self.crop_y.value())
+        video = next((s for s in self._media.streams if s.codec_type == "video"), None)
+        video_size = (video.width, video.height) if video and video.width and video.height else None
         folder = (Path(self._settings.default_output_directory)
                   if self._settings.default_output_directory
                   else self._settings_service.suggested_output_directory(self._media.path))
@@ -390,6 +464,12 @@ class MainWindow(QMainWindow):
                 operation, ffmpeg, self._media.path, folder, self._media.duration_seconds,
                 segment_seconds=segment, audio_format=self.audio_format.currentData(),
                 quality=self.quality.currentData(), reserved=self._reserved,
+                start_seconds=self.trim_start.value(),
+                end_seconds=self.trim_end.value() or None,
+                rotation=self.trim_rotation.currentData(), crop=crop, video_size=video_size,
+                audio_bitrate=self.audio_bitrate.currentData(),
+                sample_rate=self.audio_sample_rate.currentData(),
+                channels=self.audio_channels.currentData(), gain_db=self.audio_gain.value(),
             )
         except ValueError as error:
             QMessageBox.warning(self, "参数无效", str(error))

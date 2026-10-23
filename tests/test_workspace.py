@@ -17,7 +17,7 @@ def test_tabs_keep_source_and_status_visible(tmp_path: Path, qt_app: QApplicatio
     assert not window.brand.pixmap().isNull()
     assert window.brand.pixmap().width() <= window.width() - 72
     assert window.tabs.tabText(1) == "转码 / Transcode"
-    assert window.tabs.tabText(3) == "提取音频 / Extract Audio"
+    assert window.tabs.tabText(4) == "提取音频 / Extract Audio"
     source = tmp_path / "test.mp4"
     source.touch()
     window._media = MediaInfo(
@@ -31,10 +31,19 @@ def test_tabs_keep_source_and_status_visible(tmp_path: Path, qt_app: QApplicatio
     window._add_jobs("split")
     assert window.queue.count() == 3
     assert "1920×1080" in window.source_info.text()
-    window.tabs.setCurrentIndex(3)
-    assert window.pages.currentIndex() == 3
+    window.tabs.setCurrentIndex(4)
+    assert window.pages.currentIndex() == 4
     assert window.queue.count() == 3
     assert window.audio_format.currentData() == "mp3"
+    window.tabs.setCurrentIndex(3)
+    window.trim_start.setValue(10)
+    window.trim_end.setValue(20)
+    window.trim_rotation.setCurrentIndex(1)
+    window.crop_width.setValue(640)
+    window.crop_height.setValue(480)
+    window._add_jobs("trim")
+    assert window.queue.count() == 4
+    assert "crop=640:480:0:0,transpose=1" in window.command_preview.toPlainText()
     window.close()
     window.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)

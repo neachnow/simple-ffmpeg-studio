@@ -48,6 +48,31 @@ def test_invalid_segment_duration_is_rejected(tmp_path: Path) -> None:
         plan_jobs("split", Path("ffmpeg"), source, tmp_path, 100, segment_seconds=0)
 
 
+def test_trim_and_audio_advanced_parameters(tmp_path: Path) -> None:
+    source = tmp_path / "source.mp4"
+    source.touch()
+    trim = plan_jobs(
+        "trim", Path("ffmpeg"), source, tmp_path, 125,
+        start_seconds=10, end_seconds=30, rotation="clockwise",
+        crop=(640, 480, 10, 20), video_size=(1920, 1080),
+    )[0]
+    audio = plan_jobs(
+        "audio", Path("ffmpeg"), source, tmp_path, 125,
+        audio_format="mp3", audio_bitrate="256k", sample_rate=44100,
+        channels=1, gain_db=3,
+    )[0]
+    assert trim.duration_seconds == 20
+    assert trim.command[trim.command.index("-vf") + 1] == "crop=640:480:10:20,transpose=1"
+    assert trim.command[trim.command.index("-ss") + 1] == "10.000"
+    assert audio.command[audio.command.index("-b:a") + 1] == "256k"
+    assert audio.command[audio.command.index("-ar") + 1] == "44100"
+    assert audio.command[audio.command.index("-ac") + 1] == "1"
+    assert audio.command[audio.command.index("-af") + 1] == "volume=3dB"
+    with pytest.raises(ValueError, match="超出"):
+        plan_jobs("trim", Path("ffmpeg"), source, tmp_path, 125,
+                  crop=(640, 480, 1500, 0), video_size=(1920, 1080))
+
+
 def test_source_media_short_clip_executes(tmp_path: Path) -> None:
     root = Path(__file__).resolve().parents[1]
     ffmpeg = root / "source" / "ffmpeg" / "bin" / "ffmpeg.exe"
@@ -76,6 +101,22 @@ def test_video_split_short_clip_executes(tmp_path: Path) -> None:
     if not ffmpeg.is_file() or not sources:
         pytest.skip("本地 FFmpeg 或 source 视频不可用")
     job = plan_jobs("split", ffmpeg, sources[0], tmp_path, 1, segment_seconds=1)[0]
+    result = subprocess.run(job.command, capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stderr.decode(errors="replace")[-1000:]
+    assert job.output.stat().st_size > 0
+
+
+def test_trim_transform_short_clip_executes(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[1]
+    ffmpeg = root / "source" / "ffmpeg" / "bin" / "ffmpeg.exe"
+    sources = list((root / "source").glob("*.mp4"))
+    if not ffmpeg.is_file() or not sources:
+        pytest.skip("本地 FFmpeg 或 source 视频不可用")
+    job = plan_jobs(
+        "trim", ffmpeg, sources[0], tmp_path, 245.362,
+        start_seconds=0, end_seconds=1, crop=(640, 480, 0, 0),
+        video_size=(1920, 1160), rotation="clockwise",
+    )[0]
     result = subprocess.run(job.command, capture_output=True, timeout=60)
     assert result.returncode == 0, result.stderr.decode(errors="replace")[-1000:]
     assert job.output.stat().st_size > 0
