@@ -10,6 +10,7 @@
 | 2026-10-24 | M2：主界面、转码、视频分割与音频提取 | 已完成 | `pytest`：19 passed（含 source 视频短片段 MP3 提取、视频分割、后台执行及 UI 转码）；`ruff check .`：通过；横幅及分割页截图已检查 | `feat: build media dashboard workflows` |
 | 2026-10-24 | M3a：裁剪与音频高级参数 | 已完成 | `pytest`：21 passed（含 source 视频短片段裁剪、画面裁切与旋转）；`ruff check .`：通过；裁剪页滚动布局截图已检查 | `feat: add trim and audio controls` |
 | 2026-10-24 | M3b：队列编辑、重试、历史及应用图标 | 已完成 | `pytest`：24 passed（含队列操作、Unicode 历史存取、图标加载及 source 视频 UI 转码）；`ruff check .`：通过 | `feat: manage queue history and app icon` |
+| 2026-10-24 | M4：状态栏 Logo、圆角、Windows 试用包与使用说明 | 已完成 | `pytest`：24 passed；`ruff check .`：通过；源码及 PyInstaller 成品 `--smoke-test` 均通过，且成品在仅含 Windows System32 的 PATH 下启动检查通过；最终界面截图已检查。打包 exe 使用 `source/icon2.jpg`，FFmpeg 二进制不随包分发。 | `feat: package Windows trial build` |
 
 ## 环境记录
 

@@ -1,9 +1,9 @@
 # FFmpeg Studio PRD（MVP）
 
 **版本：** 0.1
-**状态：** 待开发
+**状态：** Windows 内部试用版；完整 FR 清单仍有后续规划项，当前可用功能以 README 为准
 **产品形态：** Windows 本地桌面应用
-**技术基线：** Python 3.11+、PySide6、FFmpeg/FFprobe
+**技术基线：** Python 3.12、PySide6、FFmpeg/FFprobe
 
 ## 1. 产品概述
 

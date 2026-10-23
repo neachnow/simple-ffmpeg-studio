@@ -17,6 +17,10 @@ def test_tabs_keep_source_and_status_visible(tmp_path: Path, qt_app: QApplicatio
     window = MainWindow(SettingsService(backend), HistoryService(tmp_path / "history.json"))
     assert not window.brand.pixmap().isNull()
     assert not window.windowIcon().isNull()
+    assert not window.status_logo.pixmap().isNull()
+    assert window.statusBar().isAncestorOf(window.status_logo)
+    assert window.brand.pixmap().toImage().pixelColor(0, 0).alpha() == 0
+    assert window.status_logo.pixmap().toImage().pixelColor(0, 0).alpha() == 0
     assert window.brand.pixmap().width() <= window.width() - 72
     assert window.tabs.tabText(1) == "转码 / Transcode"
     assert window.tabs.tabText(4) == "提取音频 / Extract Audio"

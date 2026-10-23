@@ -29,5 +29,17 @@ def main() -> int:
 
     settings = SettingsService()
     window = MainWindow(settings)
+    if "--smoke-test" in sys.argv:
+        application.processEvents()
+        assets_ready = (
+            not window.windowIcon().isNull()
+            and not window.brand.pixmap().isNull()
+            and not window.status_logo.pixmap().isNull()
+        )
+        return 0 if assets_ready else 2
     window.show()
     return application.exec()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

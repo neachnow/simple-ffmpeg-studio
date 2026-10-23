@@ -12,6 +12,8 @@ from PySide6.QtGui import (
     QDragEnterEvent,
     QDropEvent,
     QIcon,
+    QPainter,
+    QPainterPath,
     QPixmap,
     QResizeEvent,
 )
@@ -53,6 +55,20 @@ from ffmpeg_studio.services.history import HistoryService
 from ffmpeg_studio.services.settings import AppSettings, SettingsService
 
 
+def rounded_pixmap(pixmap: QPixmap, radius: int) -> QPixmap:
+    """Round the displayed copy while preserving the original image asset."""
+    result = QPixmap(pixmap.size())
+    result.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(result)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    path = QPainterPath()
+    path.addRoundedRect(0, 0, pixmap.width(), pixmap.height(), radius, radius)
+    painter.setClipPath(path)
+    painter.drawPixmap(0, 0, pixmap)
+    painter.end()
+    return result
+
+
 class ProbeWorker(QThread):
     completed = Signal(object)
     failed = Signal(str)
@@ -92,6 +108,18 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(900, 640)
         self.setAcceptDrops(True)
         self.setStatusBar(QStatusBar(self))
+        self.status_logo = QLabel()
+        self.status_logo.setAccessibleName("FFmpeg Studio 状态栏标志")
+        logo = QPixmap(str(source_path("logo.jfif")))
+        if not logo.isNull():
+            title_strip = logo.copy(0, 0, logo.width(), round(logo.height() * 0.215))
+            self.status_logo.setPixmap(
+                rounded_pixmap(
+                    title_strip.scaledToHeight(30, Qt.TransformationMode.SmoothTransformation),
+                    4,
+                )
+            )
+            self.statusBar().addPermanentWidget(self.status_logo)
         self.setCentralWidget(self._build_ui())
         self._apply_style()
         self._check_environment()
@@ -115,6 +143,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(20)
         self.brand = QLabel()
         self.brand.setObjectName("brand")
+        self.brand.setAccessibleName("FFmpeg Studio 品牌横幅")
         self._banner = QPixmap(str(source_path("banner.jfif")))
         if self._banner.isNull():
             self.brand.setText("FFmpeg Studio   /   本地媒体工作台")
@@ -123,6 +152,7 @@ class MainWindow(QMainWindow):
             self._scale_banner(1108)
         layout.addWidget(self.brand)
         self.tabs = QTabBar()
+        self.tabs.setAccessibleName("功能导航")
         self.tabs.setDrawBase(False)
         self.tabs.setExpanding(False)
         for title in (
@@ -161,6 +191,7 @@ class MainWindow(QMainWindow):
         self.source_path = QLineEdit()
         self.source_path.setPlaceholderText("拖入视频，或选择本地文件")
         self.source_path.setReadOnly(True)
+        self.source_path.setAccessibleName("当前源视频路径")
         choose = QPushButton("选择视频")
         choose.clicked.connect(self._choose_source)
         row.addWidget(self.source_path, 1)
@@ -193,6 +224,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.environment_label)
         layout.addWidget(QLabel("最近完成的任务"))
         self.history_list = QListWidget()
+        self.history_list.setAccessibleName("最近任务历史")
         layout.addWidget(self.history_list)
         self._refresh_history()
         layout.addStretch()
@@ -200,7 +232,10 @@ class MainWindow(QMainWindow):
 
     def _refresh_history(self) -> None:
         self.history_list.clear()
-        for record in self._history_service.load():
+        records = self._history_service.load()
+        if not records:
+            self.history_list.addItem("暂无历史任务")
+        for record in records:
             self.history_list.addItem(
                 f"{record.finished_at[:16]}  ·  {record.state}  ·  {Path(record.output).name}"
             )
@@ -388,6 +423,8 @@ class MainWindow(QMainWindow):
         actions.addWidget(cancel)
         layout.addLayout(actions)
         self.queue = QListWidget()
+        self.queue.setAccessibleName("处理任务队列")
+        self.queue.setToolTip("选择等待中的任务可编辑输出、排序或移除；失败任务可重试。")
         self.queue.setMinimumHeight(150)
         self.queue.currentRowChanged.connect(self._preview_selected)
         layout.addWidget(self.queue, 2)
@@ -412,6 +449,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("执行日志"))
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
+        self.log_view.setAccessibleName("FFmpeg 执行日志")
         layout.addWidget(self.log_view, 2)
         return card
 
@@ -692,7 +730,7 @@ class MainWindow(QMainWindow):
 
     def _scale_banner(self, width: int) -> None:
         scaled = self._banner.scaledToWidth(width, Qt.TransformationMode.SmoothTransformation)
-        self.brand.setPixmap(scaled)
+        self.brand.setPixmap(rounded_pixmap(scaled, 10))
         self.brand.setFixedHeight(scaled.height())
 
     def _apply_style(self) -> None:
