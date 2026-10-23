@@ -12,6 +12,7 @@
 | 2026-10-24 | M3b：队列编辑、重试、历史及应用图标 | 已完成 | `pytest`：24 passed（含队列操作、Unicode 历史存取、图标加载及 source 视频 UI 转码）；`ruff check .`：通过 | `feat: manage queue history and app icon` |
 | 2026-10-24 | M4：状态栏 Logo、圆角、Windows 试用包与使用说明 | 已完成 | `pytest`：24 passed；`ruff check .`：通过；源码及 PyInstaller 成品 `--smoke-test` 均通过，且成品在仅含 Windows System32 的 PATH 下启动检查通过；最终界面截图已检查。打包 exe 使用 `source/icon2.jpg`，FFmpeg 二进制不随包分发。 | `feat: package Windows trial build` |
 | 2026-10-24 | M5a：时间轴任意切点的处理核心 | 已完成 | `pytest`：27 passed（含 `source` 视频的切点分割与音频提取实跑）；`ruff check .`：通过 | `feat: plan arbitrary timeline cuts` |
+| 2026-10-24 | M5b：1.0.1 可视化时间轴、紧凑布局与发布 | 已完成 | `pytest`：30 passed（含时间轴切点拖动/删除、裁剪双向同步、`source` 视频缩略图提取和任务命令）；`ruff check .`、源码启动检查通过。时间轴画面条 120px、横幅 133px；850px 初始窗口下裁剪与音频页首排四参数、无水平/垂直滚动，可最大化。PyInstaller 成品构建及仅含 Windows System32 的 PATH 下启动检查通过；FFmpeg/FFprobe 仍需用户配置。 | `feat: release visual timeline in 1.0.1` |
 
 ## 环境记录
 

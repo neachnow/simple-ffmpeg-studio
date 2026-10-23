@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, QUrl, Signal
+from PySide6.QtCore import QSize, Qt, QThread, QUrl, Signal
 from PySide6.QtGui import (
     QCloseEvent,
     QDesktopServices,
@@ -19,6 +19,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QComboBox,
+    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QFrame,
@@ -33,6 +34,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QStackedWidget,
     QStatusBar,
@@ -41,6 +43,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ffmpeg_studio import __version__
 from ffmpeg_studio.assets import source_path
 from ffmpeg_studio.core.ffmpeg import (
     FfmpegError,
@@ -53,6 +56,7 @@ from ffmpeg_studio.core.probe import MediaInfo, probe_media
 from ffmpeg_studio.core.worker import JobWorker
 from ffmpeg_studio.services.history import HistoryService
 from ffmpeg_studio.services.settings import AppSettings, SettingsService
+from ffmpeg_studio.ui.timeline import ThumbnailWorker, TimelinePanel
 
 
 def rounded_pixmap(pixmap: QPixmap, radius: int) -> QPixmap:
@@ -85,6 +89,18 @@ class ProbeWorker(QThread):
             self.failed.emit(str(error))
 
 
+class AdaptiveStack(QStackedWidget):
+    """Size scrollable tab content from the active page, not the tallest page."""
+
+    def sizeHint(self) -> QSize:
+        page = self.currentWidget()
+        return page.sizeHint() if page is not None else super().sizeHint()
+
+    def minimumSizeHint(self) -> QSize:
+        page = self.currentWidget()
+        return page.minimumSizeHint() if page is not None else super().minimumSizeHint()
+
+
 class MainWindow(QMainWindow):
     """Each top tab changes settings; source and status stay visible."""
 
@@ -97,6 +113,7 @@ class MainWindow(QMainWindow):
         self._history_service = history_service or HistoryService()
         self._media: MediaInfo | None = None
         self._probe_worker: ProbeWorker | None = None
+        self._thumbnail_workers: list[ThumbnailWorker] = []
         self._worker: JobWorker | None = None
         self._jobs: list[PlannedJob] = []
         self._states: list[str] = []
@@ -104,7 +121,7 @@ class MainWindow(QMainWindow):
         self._reserved: set[Path] = set()
         self.setWindowTitle("FFmpeg Studio")
         self.setWindowIcon(QIcon(str(source_path("icon.jfif"))))
-        self.resize(1180, 780)
+        self.resize(1180, 850)
         self.setMinimumSize(900, 640)
         self.setAcceptDrops(True)
         self.setStatusBar(QStatusBar(self))
@@ -139,8 +156,8 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> QWidget:
         root = QWidget(self)
         layout = QVBoxLayout(root)
-        layout.setContentsMargins(36, 28, 36, 28)
-        layout.setSpacing(20)
+        layout.setContentsMargins(36, 16, 36, 16)
+        layout.setSpacing(6)
         self.brand = QLabel()
         self.brand.setObjectName("brand")
         self.brand.setAccessibleName("FFmpeg Studio 品牌横幅")
@@ -164,9 +181,12 @@ class MainWindow(QMainWindow):
         columns = QHBoxLayout()
         columns.setSpacing(24)
         left = QVBoxLayout()
-        left.setSpacing(18)
+        left.setSpacing(6)
         left.addWidget(self._source_card())
-        self.pages = QStackedWidget()
+        self.timeline = TimelinePanel()
+        left.addWidget(self.timeline)
+        self.pages = AdaptiveStack()
+        self.pages.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         for page in (self._overview_page(), self._transcode_page(), self._split_page(),
                      self._trim_page(), self._audio_page(), self._settings_page()):
             self.pages.addWidget(page)
@@ -179,14 +199,33 @@ class MainWindow(QMainWindow):
         columns.addWidget(self._status_card(), 4)
         layout.addLayout(columns, 1)
         self.tabs.currentChanged.connect(self._change_page)
+        self.timeline.cuts_changed.connect(self._on_timeline_cuts)
+        self.timeline.trim_changed.connect(self._on_timeline_trim)
         return root
 
     def _change_page(self, index: int) -> None:
         self.pages.setCurrentIndex(index)
+        self.pages.updateGeometry()
+        self.pages.resize(self.pages.width(), self.pages.sizeHint().height())
+        self.timeline.set_mode({2: "split", 3: "trim", 4: "audio"}.get(index, "view"))
         self.page_scroll.verticalScrollBar().setValue(0)
 
     def _source_card(self) -> QFrame:
-        card, layout = self._card("源视频")
+        card = QFrame()
+        card.setObjectName("card")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(18, 8, 18, 8)
+        layout.setSpacing(4)
+        heading_row = QHBoxLayout()
+        heading = QLabel("源视频")
+        heading.setObjectName("cardTitle")
+        heading_row.addWidget(heading)
+        self.source_info = QLabel("尚未选择视频")
+        self.source_info.setObjectName("muted")
+        self.source_info.setWordWrap(False)
+        heading_row.addSpacing(16)
+        heading_row.addWidget(self.source_info, 1)
+        layout.addLayout(heading_row)
         row = QHBoxLayout()
         self.source_path = QLineEdit()
         self.source_path.setPlaceholderText("拖入视频，或选择本地文件")
@@ -197,22 +236,47 @@ class MainWindow(QMainWindow):
         row.addWidget(self.source_path, 1)
         row.addWidget(choose)
         layout.addLayout(row)
-        self.source_info = QLabel("尚未选择视频")
-        self.source_info.setWordWrap(True)
-        self.source_info.setObjectName("muted")
-        layout.addWidget(self.source_info)
         return card
 
     def _form_page(self, title: str, description: str) -> tuple[QFrame, QVBoxLayout, QFormLayout]:
-        page, layout = self._card(title)
+        page = QFrame()
+        page.setObjectName("formPage")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(18, 12, 18, 12)
+        layout.setSpacing(7)
+        heading_row = QHBoxLayout()
+        heading = QLabel(title)
+        heading.setObjectName("cardTitle")
+        heading_row.addWidget(heading)
+        heading_row.addSpacing(14)
         note = QLabel(description)
-        note.setWordWrap(True)
+        note.setWordWrap(False)
         note.setObjectName("muted")
-        layout.addWidget(note)
+        note.setToolTip(description)
+        heading_row.addWidget(note, 1)
+        layout.addLayout(heading_row)
         form = QFormLayout()
-        form.setSpacing(14)
+        form.setSpacing(7)
         layout.addLayout(form)
         return page, layout, form
+
+    @staticmethod
+    def _compact_row(form: QFormLayout, fields: tuple[tuple[str, QWidget], ...]) -> None:
+        row = QWidget()
+        columns = QHBoxLayout(row)
+        columns.setContentsMargins(0, 0, 0, 0)
+        columns.setSpacing(10)
+        for label, field in fields:
+            column = QVBoxLayout()
+            column.setSpacing(2)
+            caption = QLabel(label)
+            caption.setObjectName("muted")
+            column.addWidget(caption)
+            field.setMinimumWidth(0)
+            field.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+            column.addWidget(field)
+            columns.addLayout(column, 1)
+        form.addRow(row)
 
     def _overview_page(self) -> QFrame:
         page, layout, _ = self._form_page(
@@ -220,11 +284,15 @@ class MainWindow(QMainWindow):
         )
         self.environment_label = QLabel("正在检测 FFmpeg 环境…")
         self.environment_label.setWordWrap(True)
+        self.environment_label.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
         self.environment_label.setObjectName("muted")
         layout.addWidget(self.environment_label)
         layout.addWidget(QLabel("最近完成的任务"))
         self.history_list = QListWidget()
         self.history_list.setAccessibleName("最近任务历史")
+        self.history_list.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
         layout.addWidget(self.history_list)
         self._refresh_history()
         layout.addStretch()
@@ -258,18 +326,20 @@ class MainWindow(QMainWindow):
         return page
 
     @staticmethod
-    def _duration_controls(form: QFormLayout) -> tuple[QComboBox, QSpinBox]:
+    def _duration_controls(form: QFormLayout | None) -> tuple[QComboBox, QSpinBox]:
         mode = QComboBox()
-        mode.addItem("按原时长（完整输出）", False)
-        mode.addItem("按每段时长分割", True)
+        mode.addItem("按原时长（完整输出）", "full")
+        mode.addItem("按每段时长分割", "fixed")
+        mode.addItem("按时间轴切点", "cuts")
         seconds = QSpinBox()
         seconds.setRange(1, 86400)
         seconds.setValue(60)
         seconds.setSuffix(" 秒 / 段")
         seconds.setEnabled(False)
-        mode.currentIndexChanged.connect(lambda: seconds.setEnabled(bool(mode.currentData())))
-        form.addRow("处理范围", mode)
-        form.addRow("每段时长", seconds)
+        mode.currentIndexChanged.connect(lambda: seconds.setEnabled(mode.currentData() == "fixed"))
+        if form is not None:
+            form.addRow("处理范围", mode)
+            form.addRow("每段时长", seconds)
         return mode, seconds
 
     def _split_page(self) -> QFrame:
@@ -288,28 +358,30 @@ class MainWindow(QMainWindow):
         page, layout, form = self._form_page(
             "提取音频", "导出第一条音轨，可选择完整音频或按时长分段。"
         )
-        self.audio_mode, self.audio_seconds = self._duration_controls(form)
+        self.audio_mode, self.audio_seconds = self._duration_controls(None)
         self.audio_format = QComboBox()
         for name in ("MP3", "AAC", "WAV", "FLAC"):
             self.audio_format.addItem(name, name.lower())
-        form.addRow("输出格式", self.audio_format)
         self.audio_bitrate = QComboBox()
         for bitrate in ("128k", "192k", "256k", "320k"):
             self.audio_bitrate.addItem(bitrate, bitrate)
         self.audio_bitrate.setCurrentIndex(1)
-        form.addRow("音频码率", self.audio_bitrate)
         self.audio_sample_rate = QComboBox()
         for label, value in (("保持原采样率", None), ("44.1 kHz", 44100), ("48 kHz", 48000)):
             self.audio_sample_rate.addItem(label, value)
-        form.addRow("采样率", self.audio_sample_rate)
         self.audio_channels = QComboBox()
         for label, value in (("保持原声道", None), ("单声道", 1), ("立体声", 2)):
             self.audio_channels.addItem(label, value)
-        form.addRow("声道", self.audio_channels)
         self.audio_gain = QSpinBox()
         self.audio_gain.setRange(-12, 12)
         self.audio_gain.setSuffix(" dB")
-        form.addRow("音量增益", self.audio_gain)
+        self._compact_row(form, (("处理范围", self.audio_mode),
+                                 ("每段时长", self.audio_seconds),
+                                 ("输出格式", self.audio_format),
+                                 ("音频码率", self.audio_bitrate)))
+        self._compact_row(form, (("采样率", self.audio_sample_rate),
+                                 ("声道", self.audio_channels),
+                                 ("音量增益", self.audio_gain)))
         button = QPushButton("添加音频提取任务")
         button.setObjectName("primary")
         button.clicked.connect(lambda: self._add_jobs("audio"))
@@ -322,20 +394,22 @@ class MainWindow(QMainWindow):
             "裁剪与变换",
             "按开始和结束时间截取视频，可选旋转、翻转及画面裁切。结束时间填 0 表示到片尾。",
         )
-        self.trim_start = QSpinBox()
+        self.trim_start = QDoubleSpinBox()
         self.trim_start.setRange(0, 864000)
+        self.trim_start.setDecimals(2)
+        self.trim_start.setSingleStep(0.1)
         self.trim_start.setSuffix(" 秒")
-        self.trim_end = QSpinBox()
+        self.trim_end = QDoubleSpinBox()
         self.trim_end.setRange(0, 864000)
-        self.trim_end.setSuffix(" 秒（0 = 片尾）")
-        form.addRow("开始时间", self.trim_start)
-        form.addRow("结束时间", self.trim_end)
+        self.trim_end.setDecimals(2)
+        self.trim_end.setSingleStep(0.1)
+        self.trim_end.setSuffix(" 秒")
+        self.trim_end.setToolTip("填写 0 表示到视频末尾")
         self.trim_rotation = QComboBox()
         for label, value in (("不变", "none"), ("顺时针 90°", "clockwise"),
                              ("逆时针 90°", "counterclockwise"),
                              ("水平翻转", "flip_horizontal"), ("垂直翻转", "flip_vertical")):
             self.trim_rotation.addItem(label, value)
-        form.addRow("旋转 / 翻转", self.trim_rotation)
         self.crop_width = QSpinBox()
         self.crop_width.setRange(0, 16384)
         self.crop_width.setSpecialValueText("不裁切")
@@ -346,15 +420,21 @@ class MainWindow(QMainWindow):
         self.crop_x.setRange(0, 16384)
         self.crop_y = QSpinBox()
         self.crop_y.setRange(0, 16384)
-        for label, field in (("裁切宽度", self.crop_width), ("裁切高度", self.crop_height),
-                             ("左上 X", self.crop_x), ("左上 Y", self.crop_y)):
-            form.addRow(label, field)
+        self._compact_row(form, (("开始时间", self.trim_start),
+                                 ("结束时间", self.trim_end),
+                                 ("旋转 / 翻转", self.trim_rotation),
+                                 ("裁切宽度", self.crop_width)))
+        self._compact_row(form, (("裁切高度", self.crop_height),
+                                 ("起点 X", self.crop_x),
+                                 ("起点 Y", self.crop_y)))
+        self.trim_start.valueChanged.connect(self._sync_trim_fields)
+        self.trim_end.valueChanged.connect(self._sync_trim_fields)
         button = QPushButton("添加裁剪任务")
         button.setObjectName("primary")
         button.clicked.connect(lambda: self._add_jobs("trim"))
         layout.addWidget(button)
         layout.addStretch()
-        page.setMinimumHeight(515)
+        page.setMinimumHeight(220)
         return page
 
     def _settings_page(self) -> QFrame:
@@ -375,6 +455,9 @@ class MainWindow(QMainWindow):
         clear = QPushButton("清除任务历史")
         clear.clicked.connect(self._clear_history)
         layout.addWidget(clear)
+        version = QLabel(f"FFmpeg Studio {__version__}")
+        version.setObjectName("muted")
+        layout.addWidget(version)
         layout.addStretch()
         return page
 
@@ -498,7 +581,10 @@ class MainWindow(QMainWindow):
         if self._probe_worker is not None and self._probe_worker.isRunning():
             QMessageBox.information(self, "正在分析", "请等待当前视频分析完成。")
             return
+        for thumbnail_worker in self._thumbnail_workers:
+            thumbnail_worker.cancel()
         self._media = None
+        self.timeline.set_media(0)
         self.source_path.setText(str(source))
         self.source_info.setText("正在分析媒体信息…")
         worker = ProbeWorker(ffprobe, source)
@@ -509,17 +595,69 @@ class MainWindow(QMainWindow):
 
     def _show_media(self, media: MediaInfo) -> None:
         self._media = media
+        self.trim_start.blockSignals(True)
+        self.trim_end.blockSignals(True)
+        self.trim_start.setValue(0)
+        self.trim_end.setValue(0)
+        self.trim_start.blockSignals(False)
+        self.trim_end.blockSignals(False)
         video = next((s for s in media.streams if s.codec_type == "video"), None)
         audio = next((s for s in media.streams if s.codec_type == "audio"), None)
+        self.timeline.set_media(media.duration_seconds or 0.0, has_video=video is not None)
         detail = [f"时长 {media.duration_seconds:.1f} 秒" if media.duration_seconds else "时长未知"]
         if video:
             detail.append(f"视频 {video.codec_name} · {video.width}×{video.height}")
         if audio:
             detail.append(f"音频 {audio.codec_name} · {audio.channels} 声道")
         self.source_info.setText("   |   ".join(detail))
+        ffmpeg = self._candidate("ffmpeg", self._settings.ffmpeg_path)
+        if (video and ffmpeg and media.duration_seconds and media.duration_seconds > 0
+                and media.path.is_file() and media.path.stat().st_size > 0):
+            worker = ThumbnailWorker(ffmpeg, media.path, media.duration_seconds)
+            self._thumbnail_workers.append(worker)
+            worker.frame_ready.connect(self._on_thumbnail_frame)
+            worker.finished.connect(lambda worker=worker: self._release_thumbnail_worker(worker))
+            worker.start()
+        else:
+            self.timeline.set_preview_finished()
+
+    def _on_thumbnail_frame(self, source: str, index: int, data: bytes) -> None:
+        if self._media is not None and str(self._media.path) == source:
+            self.timeline.set_frame(index, data)
+
+    def _release_thumbnail_worker(self, worker: ThumbnailWorker) -> None:
+        if self._media is not None and self._media.path == worker.source:
+            self.timeline.set_preview_finished()
+        if worker in self._thumbnail_workers:
+            self._thumbnail_workers.remove(worker)
+        worker.deleteLater()
+
+    def _on_timeline_cuts(self, mode: str, cuts: object) -> None:
+        control = self.split_mode if mode == "split" else self.audio_mode
+        if cuts:
+            control.setCurrentIndex(control.findData("cuts"))
+        elif control.currentData() == "cuts":
+            control.setCurrentIndex(control.findData("full"))
+
+    def _on_timeline_trim(self, start: float, end: float) -> None:
+        self.trim_start.blockSignals(True)
+        self.trim_end.blockSignals(True)
+        self.trim_start.setValue(start)
+        full_length = self._media.duration_seconds if self._media is not None else None
+        self.trim_end.setValue(0 if full_length and abs(end - full_length) < 0.01 else end)
+        self.trim_start.blockSignals(False)
+        self.trim_end.blockSignals(False)
+
+    def _sync_trim_fields(self) -> None:
+        if self._media is None or not self._media.duration_seconds:
+            return
+        end = self.trim_end.value() or self._media.duration_seconds
+        if end > self.trim_start.value():
+            self.timeline.set_trim_range(self.trim_start.value(), end)
 
     def _probe_failed(self, message: str) -> None:
         self._media = None
+        self.timeline.set_media(0)
         self.source_info.setText("视频分析失败")
         QMessageBox.warning(self, "视频分析失败", message)
 
@@ -531,11 +669,15 @@ class MainWindow(QMainWindow):
         if operation == "audio" and not any(s.codec_type == "audio" for s in self._media.streams):
             QMessageBox.warning(self, "无法提取音频", "该媒体文件没有音轨。")
             return
-        mode, seconds = ((self.split_mode, self.split_seconds) if operation == "split"
-                         else (self.audio_mode, self.audio_seconds))
-        segment = seconds.value() if operation != "transcode" and mode.currentData() else None
-        if operation == "trim":
-            segment = None
+        segment = None
+        cut_points = None
+        if operation in {"split", "audio"}:
+            mode, seconds = ((self.split_mode, self.split_seconds) if operation == "split"
+                             else (self.audio_mode, self.audio_seconds))
+            if mode.currentData() == "fixed":
+                segment = seconds.value()
+            elif mode.currentData() == "cuts":
+                cut_points = self.timeline.cuts(operation)
         crop = None
         if operation == "trim" and (self.crop_width.value() or self.crop_height.value()):
             crop = (self.crop_width.value(), self.crop_height.value(),
@@ -548,7 +690,8 @@ class MainWindow(QMainWindow):
         try:
             jobs = plan_jobs(
                 operation, ffmpeg, self._media.path, folder, self._media.duration_seconds,
-                segment_seconds=segment, audio_format=self.audio_format.currentData(),
+                segment_seconds=segment, cut_points=cut_points,
+                audio_format=self.audio_format.currentData(),
                 quality=self.quality.currentData(), reserved=self._reserved,
                 start_seconds=self.trim_start.value(),
                 end_seconds=self.trim_end.value() or None,
@@ -712,6 +855,12 @@ class MainWindow(QMainWindow):
             event.acceptProposedAction()
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        for thumbnail_worker in self._thumbnail_workers:
+            thumbnail_worker.cancel()
+        for thumbnail_worker in self._thumbnail_workers:
+            if not thumbnail_worker.wait(13000):
+                event.ignore()
+                return
         if self._worker is not None and self._worker.isRunning():
             self._worker.cancel()
             if not self._worker.wait(5000):
@@ -736,11 +885,13 @@ class MainWindow(QMainWindow):
     def _apply_style(self) -> None:
         self.setStyleSheet("""
             QMainWindow, QWidget { background: #fafbfc; color: #20252b; font-size: 13px; }
-            QLabel#brand { font-size: 19px; font-weight: 700; padding: 8px 0 14px 0; }
+            QLabel#brand { font-size: 19px; font-weight: 700; padding: 0; }
             QLabel#cardTitle { font-size: 16px; font-weight: 700; }
             QLabel#muted { color: #65707b; }
             QFrame#card { background: white; border: 1px solid #e4e8ec; border-radius: 9px; }
-            QFrame#card QLabel { background: transparent; }
+            QFrame#formPage { background: white; border: 1px solid #e4e8ec;
+                border-radius: 9px; }
+            QFrame#card QLabel, QFrame#formPage QLabel { background: transparent; }
             QTabBar { background: #fafbfc; border-bottom: 1px solid #e5e9ed; }
             QTabBar::tab { padding: 11px 18px; color: #5d6874;
                 font-family: "Noto Sans SC", "Microsoft YaHei UI";
@@ -748,7 +899,7 @@ class MainWindow(QMainWindow):
                 border-bottom: 2px solid transparent; }
             QTabBar::tab:selected { color: #17212b; font-weight: 600;
                 border-bottom: 2px solid #1987ce; }
-            QLineEdit, QComboBox, QSpinBox, QListWidget, QPlainTextEdit {
+            QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QListWidget, QPlainTextEdit {
                 border: 1px solid #dce2e7; border-radius: 5px; padding: 6px; background: white;
             }
             QPushButton { border: 1px solid #dce2e7; border-radius: 5px;
@@ -756,6 +907,7 @@ class MainWindow(QMainWindow):
             QPushButton:hover { border-color: #1987ce; }
             QPushButton#primary { background: #20252b; color: white;
                 border-color: #20252b; font-weight: 600; }
+            QFrame#formPage QPushButton { padding: 5px 10px; }
             QProgressBar { border: 0; border-radius: 3px; background: #e7ebef; height: 8px; }
             QProgressBar::chunk { background: #168bd3; border-radius: 3px; }
         """)

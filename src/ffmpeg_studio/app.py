@@ -8,6 +8,7 @@ from pathlib import Path
 from PySide6.QtGui import QFont, QFontDatabase, QIcon
 from PySide6.QtWidgets import QApplication
 
+from ffmpeg_studio import __version__
 from ffmpeg_studio.assets import source_path
 from ffmpeg_studio.core.logging import configure_logging
 from ffmpeg_studio.services.settings import SettingsService
@@ -19,6 +20,7 @@ def main() -> int:
     configure_logging()
     application = QApplication(sys.argv)
     application.setApplicationName("FFmpeg Studio")
+    application.setApplicationVersion(__version__)
     application.setOrganizationName("FFmpeg Studio")
     application.setWindowIcon(QIcon(str(source_path("icon.jfif"))))
     for font_file in ("NotoSansSC-VF.ttf", "msyh.ttc"):
@@ -30,12 +32,16 @@ def main() -> int:
     settings = SettingsService()
     window = MainWindow(settings)
     if "--smoke-test" in sys.argv:
+        window.show()
         application.processEvents()
         assets_ready = (
             not window.windowIcon().isNull()
             and not window.brand.pixmap().isNull()
             and not window.status_logo.pixmap().isNull()
+            and window.timeline.height() <= 280
+            and window.maximumHeight() > 1024
         )
+        window.close()
         return 0 if assets_ready else 2
     window.show()
     return application.exec()
