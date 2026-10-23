@@ -48,6 +48,40 @@ def test_invalid_segment_duration_is_rejected(tmp_path: Path) -> None:
         plan_jobs("split", Path("ffmpeg"), source, tmp_path, 100, segment_seconds=0)
 
 
+def test_arbitrary_timeline_cuts_plan_exact_segments(tmp_path: Path) -> None:
+    source = tmp_path / "时间轴 源.mp4"
+    source.touch()
+    videos = plan_jobs(
+        "split", Path("ffmpeg"), source, tmp_path, 10.0, cut_points=(7.25, 2.5)
+    )
+    audios = plan_jobs(
+        "audio", Path("ffmpeg"), source, tmp_path, 10.0, cut_points=(2.5, 7.25)
+    )
+    assert [job.duration_seconds for job in videos] == [2.5, 4.75, 2.75]
+    assert [job.duration_seconds for job in audios] == [2.5, 4.75, 2.75]
+    assert [job.command[job.command.index("-ss") + 1] for job in videos] == [
+        "0.000", "2.500", "7.250"
+    ]
+    assert [job.command[job.command.index("-t") + 1] for job in audios] == [
+        "2.500", "4.750", "2.750"
+    ]
+    assert len({job.output for job in [*videos, *audios]}) == 6
+
+
+def test_timeline_cuts_reject_invalid_positions(tmp_path: Path) -> None:
+    source = tmp_path / "source.mp4"
+    source.touch()
+    for cuts, error in (
+        ((), "至少一个切点"), ((0,), "范围内"), ((12,), "范围内"),
+        ((2, 2.001), "至少相隔"),
+    ):
+        with pytest.raises(ValueError, match=error):
+            plan_jobs("split", Path("ffmpeg"), source, tmp_path, 10, cut_points=cuts)
+    with pytest.raises(ValueError, match="不能同时"):
+        plan_jobs("audio", Path("ffmpeg"), source, tmp_path, 10,
+                  segment_seconds=2, cut_points=(3,))
+
+
 def test_trim_and_audio_advanced_parameters(tmp_path: Path) -> None:
     source = tmp_path / "source.mp4"
     source.touch()
@@ -104,6 +138,24 @@ def test_video_split_short_clip_executes(tmp_path: Path) -> None:
     result = subprocess.run(job.command, capture_output=True, timeout=60)
     assert result.returncode == 0, result.stderr.decode(errors="replace")[-1000:]
     assert job.output.stat().st_size > 0
+
+
+def test_source_media_timeline_cuts_execute(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[1]
+    ffmpeg = root / "source" / "ffmpeg" / "bin" / "ffmpeg.exe"
+    sources = list((root / "source").glob("*.mp4"))
+    if not ffmpeg.is_file() or not sources:
+        pytest.skip("本地 FFmpeg 或 source 视频不可用")
+    for operation in ("split", "audio"):
+        jobs = plan_jobs(
+            operation, ffmpeg, sources[0], tmp_path, 1.0,
+            cut_points=(0.4,), audio_format="mp3",
+        )
+        assert len(jobs) == 2
+        for job in jobs:
+            result = subprocess.run(job.command, capture_output=True, timeout=60)
+            assert result.returncode == 0, result.stderr.decode(errors="replace")[-1000:]
+            assert job.output.stat().st_size > 0
 
 
 def test_trim_transform_short_clip_executes(tmp_path: Path) -> None:
