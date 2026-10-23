@@ -5,7 +5,7 @@
 | 日期 | 任务 | 状态 | 验证结果 | Commit |
 | --- | --- | --- | --- | --- |
 | 2026-10-24 | 建立项目开发约定 | 已完成 | `git diff --cached --check -- AGENTS.md` 通过 | `cd84678` |
-| 2026-10-24 | M0：项目骨架与开发约定 | 进行中 | 已建立骨架、配置和单元测试；待在 Python 3.12 `env` 内完成依赖安装并运行测试 | — |
+| 2026-10-24 | M0：项目骨架与开发约定 | 已完成 | Python 3.12 `env` 中执行 `pytest`：3 passed；执行 `ruff check .`：通过 | `feat: initialize application scaffold` |
 
 ## 环境记录
 
