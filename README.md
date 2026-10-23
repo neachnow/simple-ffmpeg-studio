@@ -4,6 +4,10 @@ FFmpeg Studio 1.0.3 是一款 Windows 本地媒体处理工具，使用 Python �
 
 > **使用前必须准备 FFmpeg 和 FFprobe。** FFmpeg Studio 是图形界面，不是编码器；没有可用的 `ffmpeg.exe` 与 `ffprobe.exe` 就无法分析或处理媒体。Windows 试用包**不内置**这两个程序。首次打开后，请在“设置 / Settings”页分别指定它们的完整路径，再点击“保存并检测”。`ffplay.exe` 不是必需的。
 
+## 界面预览
+
+![FFmpeg Studio 1.0.3 主界面：源视频、时间轴、处理参数与任务状态](docs/UI6.png)
+
 ## 主要功能
 
 - **转码 / Transcode：** 将视频转为 MP4（H.264/AAC），选择高质量、平衡或小体积预设。

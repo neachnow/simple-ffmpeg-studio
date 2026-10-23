@@ -16,6 +16,7 @@
 | 2026-10-24 | M6a：裁剪及音频固定四列参数网格 | 已完成 | `pytest`：30 passed；`ruff check .`：通过；850px 窗口截图已检查。两页第二排第四列均留空，第二排三个参数与第一排同宽，没有纵向或横向溢出。 | `feat: align processing parameters in four columns` |
 | 2026-10-24 | M6b：可替换窗口背景或顶部横幅 | 已完成 | `pytest`：32 passed（含图片立即应用、输入框与左下内容卡片透出背景、持久化重启、清除和无效图片回退）；`ruff check .`：通过；截图确认左下滚动卡片四周圆角及透明背景。横幅与时间轴画面仍不透明；深色小字配浅色柔光以增强复杂背景上的可读性。 | `feat: customize workspace background` |
 | 2026-10-24 | M6c：1.0.3 发布及 Windows 打包 | 已完成 | 按后续界面要求将原定 1.0.2 调整为 1.0.3；在 Python 3.12 `env` 重装项目后 `pytest`：32 passed（含 `source` 媒体集成测试）；`ruff check .`、源码 `--smoke-test` 通过。PyInstaller 构建通过，成品在仅含 Windows System32 的 PATH 下 `--smoke-test` 退出码 0；FFmpeg/FFprobe 不随包分发。 | `feat: release FFmpeg Studio 1.0.3` |
+| 2026-10-24 | M6d：README 内嵌 UI6 界面预览 | 已完成 | 检查 `docs/UI6.png` 可读取，并验证 README 中的相对图片路径指向该文件；完整测试和静态检查通过。 | `docs: show UI6 preview in README` |
 
 ## 环境记录
 
