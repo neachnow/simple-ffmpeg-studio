@@ -92,8 +92,15 @@ def test_timeline_modes_drive_commands_and_fit_window(
     assert [job.duration_seconds for job in window._jobs] == [20.5, 40.75, 63.75]
     window.tabs.setCurrentIndex(4)
     assert window.page_scroll.verticalScrollBar().maximum() == 0
-    audio_rows = window.pages.widget(4).layout().itemAt(1).layout()
-    assert [audio_rows.itemAt(i).widget().layout().count() for i in range(2)] == [4, 3]
+    audio_form = window.pages.widget(4).layout().itemAt(1).layout()
+    audio_grid = audio_form.itemAt(0).widget().layout()
+    assert [audio_grid.itemAtPosition(0, i).widget() is not None for i in range(4)] == [True] * 4
+    assert [audio_grid.itemAtPosition(1, i) is not None for i in range(4)] == (
+        [True, True, True, False]
+    )
+    assert max(audio_grid.itemAtPosition(0, i).widget().width() for i in range(4)) - min(
+        audio_grid.itemAtPosition(1, i).widget().width() for i in range(3)
+    ) <= 2
     audio_heading = window.pages.widget(4).layout().itemAt(0).layout()
     assert audio_heading.itemAt(0).widget().geometry().top() == (
         audio_heading.itemAt(2).widget().geometry().top()
@@ -104,8 +111,12 @@ def test_timeline_modes_drive_commands_and_fit_window(
     window._add_jobs("audio")
     assert [job.duration_seconds for job in window._jobs[-2:]] == [50.25, 74.75]
     window.tabs.setCurrentIndex(3)
-    trim_rows = window.pages.widget(3).layout().itemAt(1).layout()
-    assert [trim_rows.itemAt(i).widget().layout().count() for i in range(2)] == [4, 3]
+    trim_form = window.pages.widget(3).layout().itemAt(1).layout()
+    trim_grid = trim_form.itemAt(0).widget().layout()
+    assert trim_grid.itemAtPosition(1, 3) is None
+    assert [trim_grid.itemAtPosition(1, i).widget().width() for i in range(3)] == [
+        trim_grid.itemAtPosition(0, i).widget().width() for i in range(3)
+    ]
     assert window.page_scroll.horizontalScrollBar().maximum() == 0
     window.timeline.strip.set_trim_range(12.5, 31.25, emit=True)
     assert window.trim_start.value() == 12.5

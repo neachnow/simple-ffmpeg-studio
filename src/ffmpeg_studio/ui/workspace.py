@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -261,22 +262,33 @@ class MainWindow(QMainWindow):
         return page, layout, form
 
     @staticmethod
-    def _compact_row(form: QFormLayout, fields: tuple[tuple[str, QWidget], ...]) -> None:
-        row = QWidget()
-        columns = QHBoxLayout(row)
-        columns.setContentsMargins(0, 0, 0, 0)
-        columns.setSpacing(10)
-        for label, field in fields:
-            column = QVBoxLayout()
-            column.setSpacing(2)
-            caption = QLabel(label)
-            caption.setObjectName("muted")
-            column.addWidget(caption)
-            field.setMinimumWidth(0)
-            field.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
-            column.addWidget(field)
-            columns.addLayout(column, 1)
-        form.addRow(row)
+    def _parameter_grid(
+        form: QFormLayout, rows: tuple[tuple[tuple[str, QWidget], ...], ...]
+    ) -> None:
+        """Use four fixed-width columns, leaving the last cell empty on short rows."""
+        container = QWidget()
+        grid = QGridLayout(container)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(8)
+        for column in range(4):
+            grid.setColumnStretch(column, 1)
+        for row_index, row in enumerate(rows):
+            for column, (label, field) in enumerate(row):
+                cell = QFrame()
+                cell.setObjectName("parameterCell")
+                cell.setAccessibleName(label)
+                cell_layout = QVBoxLayout(cell)
+                cell_layout.setContentsMargins(8, 6, 8, 6)
+                cell_layout.setSpacing(3)
+                caption = QLabel(label)
+                caption.setObjectName("muted")
+                cell_layout.addWidget(caption)
+                field.setMinimumWidth(0)
+                field.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+                cell_layout.addWidget(field)
+                grid.addWidget(cell, row_index, column)
+        form.addRow(container)
 
     def _overview_page(self) -> QFrame:
         page, layout, _ = self._form_page(
@@ -375,13 +387,12 @@ class MainWindow(QMainWindow):
         self.audio_gain = QSpinBox()
         self.audio_gain.setRange(-12, 12)
         self.audio_gain.setSuffix(" dB")
-        self._compact_row(form, (("处理范围", self.audio_mode),
-                                 ("每段时长", self.audio_seconds),
-                                 ("输出格式", self.audio_format),
-                                 ("音频码率", self.audio_bitrate)))
-        self._compact_row(form, (("采样率", self.audio_sample_rate),
-                                 ("声道", self.audio_channels),
-                                 ("音量增益", self.audio_gain)))
+        self._parameter_grid(form, (
+            (("处理范围", self.audio_mode), ("每段时长", self.audio_seconds),
+             ("输出格式", self.audio_format), ("音频码率", self.audio_bitrate)),
+            (("采样率", self.audio_sample_rate), ("声道", self.audio_channels),
+             ("音量增益", self.audio_gain)),
+        ))
         button = QPushButton("添加音频提取任务")
         button.setObjectName("primary")
         button.clicked.connect(lambda: self._add_jobs("audio"))
@@ -420,13 +431,12 @@ class MainWindow(QMainWindow):
         self.crop_x.setRange(0, 16384)
         self.crop_y = QSpinBox()
         self.crop_y.setRange(0, 16384)
-        self._compact_row(form, (("开始时间", self.trim_start),
-                                 ("结束时间", self.trim_end),
-                                 ("旋转 / 翻转", self.trim_rotation),
-                                 ("裁切宽度", self.crop_width)))
-        self._compact_row(form, (("裁切高度", self.crop_height),
-                                 ("起点 X", self.crop_x),
-                                 ("起点 Y", self.crop_y)))
+        self._parameter_grid(form, (
+            (("开始时间", self.trim_start), ("结束时间", self.trim_end),
+             ("旋转 / 翻转", self.trim_rotation), ("裁切宽度", self.crop_width)),
+            (("裁切高度", self.crop_height), ("起点 X", self.crop_x),
+             ("起点 Y", self.crop_y)),
+        ))
         self.trim_start.valueChanged.connect(self._sync_trim_fields)
         self.trim_end.valueChanged.connect(self._sync_trim_fields)
         button = QPushButton("添加裁剪任务")
@@ -891,6 +901,8 @@ class MainWindow(QMainWindow):
             QFrame#card { background: white; border: 1px solid #e4e8ec; border-radius: 9px; }
             QFrame#formPage { background: white; border: 1px solid #e4e8ec;
                 border-radius: 9px; }
+            QFrame#parameterCell { background: #f8fafb; border: 1px solid #e2e8ed;
+                border-radius: 6px; }
             QFrame#card QLabel, QFrame#formPage QLabel { background: transparent; }
             QTabBar { background: #fafbfc; border-bottom: 1px solid #e5e9ed; }
             QTabBar::tab { padding: 11px 18px; color: #5d6874;
