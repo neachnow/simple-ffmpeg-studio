@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from ffmpeg_studio.core.ffmpeg import (
+    MEDIA_PROCESS_CREATION_FLAGS,
     FfmpegError,
     TranscodeRequest,
     build_transcode_command,
@@ -12,8 +13,9 @@ from ffmpeg_studio.core.ffmpeg import (
     inspect_executable,
     parse_progress_line,
     parse_timestamp,
+    start_process,
 )
-from ffmpeg_studio.core.probe import parse_probe_payload
+from ffmpeg_studio.core.probe import parse_probe_payload, probe_media
 
 
 def test_parses_ffmpeg_timestamp() -> None:
@@ -54,7 +56,10 @@ def test_parses_probe_payload() -> None:
         {
             "format": {"duration": "12.25", "format_name": "mov,mp4,m4a,3gp,3g2,mj2"},
             "streams": [
-                {"index": 0, "codec_type": "video", "codec_name": "h264", "width": 1920, "height": 1080},
+                {
+                    "index": 0, "codec_type": "video", "codec_name": "h264",
+                    "width": 1920, "height": 1080,
+                },
                 {"index": 1, "codec_type": "audio", "codec_name": "aac", "channels": 2},
             ],
         },
@@ -80,6 +85,30 @@ def test_inspect_reports_failed_executable(monkeypatch: pytest.MonkeyPatch) -> N
 
     with pytest.raises(FfmpegError, match="not ffmpeg"):
         inspect_executable(Path("C:/tools/ffmpeg.exe"))
+
+
+def test_media_processes_use_windowless_creation_flags(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    flags: list[int] = []
+
+    def fake_run(command, **kwargs):
+        flags.append(kwargs["creationflags"])
+        payload = ('{"format":{"duration":"1"},"streams":[]}'
+                   if "-show_format" in command else "ffmpeg version test")
+        return subprocess.CompletedProcess(command, 0, payload, "")
+
+    def fake_popen(_command, **kwargs):
+        flags.append(kwargs["creationflags"])
+        return object()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    inspect_executable(Path("C:/tools/ffmpeg.exe"))
+    probe_media(Path("C:/tools/ffprobe.exe"), Path("C:/media/video.mp4"))
+    start_process(["ffmpeg", "-version"])
+    assert flags == [MEDIA_PROCESS_CREATION_FLAGS] * 3
+    assert MEDIA_PROCESS_CREATION_FLAGS == getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 class _SlowProcess:

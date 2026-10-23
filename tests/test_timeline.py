@@ -1,5 +1,6 @@
 """Visual timeline interactions and their planned FFmpeg jobs."""
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ from PySide6.QtGui import QImage
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
+from ffmpeg_studio.core.ffmpeg import MEDIA_PROCESS_CREATION_FLAGS
 from ffmpeg_studio.core.probe import MediaInfo, MediaStream
 from ffmpeg_studio.services.history import HistoryService
 from ffmpeg_studio.services.settings import SettingsService
@@ -134,12 +136,22 @@ def test_timeline_modes_drive_commands_and_fit_window(
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
-def test_source_media_thumbnail_worker(qt_app: QApplication) -> None:
+def test_source_media_thumbnail_worker(
+    qt_app: QApplication, monkeypatch: pytest.MonkeyPatch
+) -> None:
     root = Path(__file__).resolve().parents[1]
     ffmpeg = root / "source" / "ffmpeg" / "bin" / "ffmpeg.exe"
     sources = list((root / "source").glob("*.mp4"))
     if not ffmpeg.is_file() or not sources:
         pytest.skip("本地 FFmpeg 或 source 视频不可用")
+    launch_flags: list[int] = []
+    original_popen = subprocess.Popen
+
+    def launch(*args, **kwargs):
+        launch_flags.append(kwargs.get("creationflags", -1))
+        return original_popen(*args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", launch)
     results: list[tuple[int, bytes]] = []
     worker = ThumbnailWorker(ffmpeg, sources[0], 1.0, count=3)
     worker.frame_ready.connect(lambda _source, index, data: results.append((index, data)))
@@ -148,3 +160,5 @@ def test_source_media_thumbnail_worker(qt_app: QApplication) -> None:
     qt_app.processEvents()
     assert len(results) == 3
     assert all(not QImage.fromData(data).isNull() for _, data in results)
+    assert launch_flags == [MEDIA_PROCESS_CREATION_FLAGS] * 3
+    assert MEDIA_PROCESS_CREATION_FLAGS == getattr(subprocess, "CREATE_NO_WINDOW", 0)

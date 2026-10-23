@@ -7,7 +7,7 @@ import threading
 
 from PySide6.QtCore import QThread, Signal
 
-from ffmpeg_studio.core.ffmpeg import parse_progress_line
+from ffmpeg_studio.core.ffmpeg import MEDIA_PROCESS_CREATION_FLAGS, parse_progress_line
 from ffmpeg_studio.core.planner import PlannedJob
 
 
@@ -35,6 +35,7 @@ class JobWorker(QThread):
             process = subprocess.Popen(
                 command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
+                creationflags=MEDIA_PROCESS_CREATION_FLAGS,
             )
             self._process = process
             if self._cancelled:

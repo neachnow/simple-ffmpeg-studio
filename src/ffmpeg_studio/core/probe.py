@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ffmpeg_studio.core.ffmpeg import FfmpegError
+from ffmpeg_studio.core.ffmpeg import MEDIA_PROCESS_CREATION_FLAGS, FfmpegError
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +77,7 @@ def probe_media(ffprobe_path: Path, source_file: Path, timeout_seconds: float = 
             encoding="utf-8",
             errors="replace",
             timeout=timeout_seconds,
+            creationflags=MEDIA_PROCESS_CREATION_FLAGS,
         )
     except OSError as error:
         raise FfmpegError(f"无法启动 ffprobe: {error}") from error

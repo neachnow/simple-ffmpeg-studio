@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ffmpeg_studio.core.ffmpeg import MEDIA_PROCESS_CREATION_FLAGS
+
 
 def format_time(seconds: float) -> str:
     """A compact media timestamp, retaining sub-second precision when useful."""
@@ -74,6 +76,7 @@ class ThumbnailWorker(QThread):
                 process = subprocess.Popen(
                     command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL,
+                    creationflags=MEDIA_PROCESS_CREATION_FLAGS,
                 )
                 self._process = process
                 data, _ = process.communicate(timeout=12)

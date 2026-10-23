@@ -11,6 +11,7 @@ from pathlib import Path
 
 _TIME_PATTERN = re.compile(r"\btime=(?P<value>\d{2}:\d{2}:\d{2}(?:\.\d+)?)")
 _SPEED_PATTERN = re.compile(r"\bspeed=\s*(?P<value>[\d.]+)x")
+MEDIA_PROCESS_CREATION_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +87,7 @@ def inspect_executable(executable: Path, timeout_seconds: float = 5.0) -> Execut
             encoding="utf-8",
             errors="replace",
             timeout=timeout_seconds,
+            creationflags=MEDIA_PROCESS_CREATION_FLAGS,
         )
     except OSError as error:
         raise FfmpegError(f"无法启动 {executable}: {error}") from error
@@ -131,6 +133,7 @@ def start_process(arguments: Sequence[str]) -> subprocess.Popen[str]:
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            creationflags=MEDIA_PROCESS_CREATION_FLAGS,
             text=True,
             encoding="utf-8",
             errors="replace",
