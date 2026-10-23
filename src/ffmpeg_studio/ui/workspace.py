@@ -2,16 +2,26 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QCloseEvent, QDragEnterEvent, QDropEvent, QPixmap, QResizeEvent
+from PySide6.QtCore import Qt, QThread, QUrl, Signal
+from PySide6.QtGui import (
+    QCloseEvent,
+    QDesktopServices,
+    QDragEnterEvent,
+    QDropEvent,
+    QIcon,
+    QPixmap,
+    QResizeEvent,
+)
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QFormLayout,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -29,6 +39,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ffmpeg_studio.assets import source_path
 from ffmpeg_studio.core.ffmpeg import (
     FfmpegError,
     find_executable,
@@ -38,6 +49,7 @@ from ffmpeg_studio.core.ffmpeg import (
 from ffmpeg_studio.core.planner import PlannedJob, plan_jobs
 from ffmpeg_studio.core.probe import MediaInfo, probe_media
 from ffmpeg_studio.core.worker import JobWorker
+from ffmpeg_studio.services.history import HistoryService
 from ffmpeg_studio.services.settings import AppSettings, SettingsService
 
 
@@ -60,10 +72,13 @@ class ProbeWorker(QThread):
 class MainWindow(QMainWindow):
     """Each top tab changes settings; source and status stay visible."""
 
-    def __init__(self, settings_service: SettingsService) -> None:
+    def __init__(
+        self, settings_service: SettingsService, history_service: HistoryService | None = None
+    ) -> None:
         super().__init__()
         self._settings_service = settings_service
         self._settings = settings_service.load()
+        self._history_service = history_service or HistoryService()
         self._media: MediaInfo | None = None
         self._probe_worker: ProbeWorker | None = None
         self._worker: JobWorker | None = None
@@ -72,6 +87,7 @@ class MainWindow(QMainWindow):
         self._active_index: int | None = None
         self._reserved: set[Path] = set()
         self.setWindowTitle("FFmpeg Studio")
+        self.setWindowIcon(QIcon(str(source_path("icon.jfif"))))
         self.resize(1180, 780)
         self.setMinimumSize(900, 640)
         self.setAcceptDrops(True)
@@ -99,9 +115,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(20)
         self.brand = QLabel()
         self.brand.setObjectName("brand")
-        self._banner = QPixmap(
-            str(Path(__file__).resolve().parents[3] / "source" / "banner.jfif")
-        )
+        self._banner = QPixmap(str(source_path("banner.jfif")))
         if self._banner.isNull():
             self.brand.setText("FFmpeg Studio   /   本地媒体工作台")
         else:
@@ -177,8 +191,19 @@ class MainWindow(QMainWindow):
         self.environment_label.setWordWrap(True)
         self.environment_label.setObjectName("muted")
         layout.addWidget(self.environment_label)
+        layout.addWidget(QLabel("最近完成的任务"))
+        self.history_list = QListWidget()
+        layout.addWidget(self.history_list)
+        self._refresh_history()
         layout.addStretch()
         return page
+
+    def _refresh_history(self) -> None:
+        self.history_list.clear()
+        for record in self._history_service.load():
+            self.history_list.addItem(
+                f"{record.finished_at[:16]}  ·  {record.state}  ·  {Path(record.output).name}"
+            )
 
     def _transcode_page(self) -> QFrame:
         page, layout, form = self._form_page(
@@ -312,8 +337,17 @@ class MainWindow(QMainWindow):
         button.setObjectName("primary")
         button.clicked.connect(self._save_settings)
         layout.addWidget(button)
+        clear = QPushButton("清除任务历史")
+        clear.clicked.connect(self._clear_history)
+        layout.addWidget(clear)
         layout.addStretch()
         return page
+
+    def _clear_history(self) -> None:
+        answer = QMessageBox.question(self, "清除任务历史", "确定清除本机保存的任务历史吗？")
+        if answer == QMessageBox.StandardButton.Yes:
+            self._history_service.clear()
+            self._refresh_history()
 
     def _path_picker(self, field: QLineEdit, *, directory: bool) -> QWidget:
         container = QWidget()
@@ -355,7 +389,21 @@ class MainWindow(QMainWindow):
         layout.addLayout(actions)
         self.queue = QListWidget()
         self.queue.setMinimumHeight(150)
+        self.queue.currentRowChanged.connect(self._preview_selected)
         layout.addWidget(self.queue, 2)
+        for actions in (
+            (("编辑输出", self._edit_selected_output), ("移除", self._remove_selected),
+             ("重试", self._retry_selected)),
+            (("上移", lambda: self._move_selected(-1)),
+             ("下移", lambda: self._move_selected(1)),
+             ("打开位置", self._open_selected_output)),
+        ):
+            queue_actions = QHBoxLayout()
+            for label, handler in actions:
+                button = QPushButton(label)
+                button.clicked.connect(handler)
+                queue_actions.addWidget(button)
+            layout.addLayout(queue_actions)
         layout.addWidget(QLabel("命令预览"))
         self.command_preview = QPlainTextEdit()
         self.command_preview.setReadOnly(True)
@@ -370,7 +418,7 @@ class MainWindow(QMainWindow):
     def _candidate(self, name: str, preferred: str) -> Path | None:
         if preferred:
             return find_executable(preferred, name)
-        bundled = Path(__file__).resolve().parents[3] / "source" / "ffmpeg" / "bin" / f"{name}.exe"
+        bundled = source_path("ffmpeg", "bin", f"{name}.exe")
         return bundled if bundled.is_file() else find_executable(None, name)
 
     def _check_environment(self) -> None:
@@ -481,9 +529,93 @@ class MainWindow(QMainWindow):
         self.state_label.setText(f"已添加 {len(jobs)} 个任务")
 
     def _refresh_queue(self) -> None:
+        selected = self.queue.currentRow()
         self.queue.clear()
         for job, state in zip(self._jobs, self._states, strict=True):
             self.queue.addItem(f"{state}  ·  {job.label}  ·  {job.output.name}")
+        if 0 <= selected < self.queue.count():
+            self.queue.setCurrentRow(selected)
+
+    def _preview_selected(self, index: int) -> None:
+        if 0 <= index < len(self._jobs):
+            self.command_preview.setPlainText(format_command(self._jobs[index].command))
+
+    def _selected_index(self) -> int | None:
+        index = self.queue.currentRow()
+        return index if 0 <= index < len(self._jobs) else None
+
+    def _edit_selected_output(self) -> None:
+        index = self._selected_index()
+        if index is None or self._states[index] != "等待中":
+            return
+        job = self._jobs[index]
+        value, accepted = QInputDialog.getText(
+            self, "编辑任务输出", "输出文件路径", text=str(job.output)
+        )
+        if not accepted or value.strip() == str(job.output):
+            return
+        new_path = Path(value.strip())
+        if (not value.strip() or new_path.suffix.lower() != job.output.suffix.lower()
+                or new_path.exists() or new_path in self._reserved
+                or new_path == Path(job.command[job.command.index("-i") + 1])):
+            QMessageBox.warning(self, "输出路径无效", "请填写未被占用的同格式输出文件路径。")
+            return
+        self._reserved.discard(job.output)
+        self._reserved.add(new_path)
+        self._jobs[index] = replace(
+            job, output=new_path, command=(*job.command[:-1], str(new_path))
+        )
+        self._refresh_queue()
+        self._preview_selected(index)
+
+    def _remove_selected(self) -> None:
+        index = self._selected_index()
+        if index is None or self._states[index] != "等待中":
+            return
+        self._reserved.discard(self._jobs[index].output)
+        del self._jobs[index]
+        del self._states[index]
+        self._refresh_queue()
+
+    def _move_selected(self, offset: int) -> None:
+        index = self._selected_index()
+        if index is None:
+            return
+        target = index + offset
+        if not 0 <= target < len(self._jobs):
+            return
+        if self._states[index] != "等待中" or self._states[target] != "等待中":
+            return
+        for values in (self._jobs, self._states):
+            values[index], values[target] = values[target], values[index]
+        self._refresh_queue()
+        self.queue.setCurrentRow(target)
+
+    def _retry_selected(self) -> None:
+        index = self._selected_index()
+        if index is None or self._states[index] not in {"失败", "已取消"}:
+            return
+        original = self._jobs[index]
+        candidate = original.output
+        number = 2
+        while candidate.exists() or candidate in self._reserved:
+            candidate = original.output.with_name(
+                f"{original.output.stem} ({number}){original.output.suffix}"
+            )
+            number += 1
+        self._reserved.add(candidate)
+        retried = replace(
+            original, output=candidate, command=(*original.command[:-1], str(candidate))
+        )
+        self._jobs.append(retried)
+        self._states.append("等待中")
+        self._refresh_queue()
+        self.queue.setCurrentRow(len(self._jobs) - 1)
+
+    def _open_selected_output(self) -> None:
+        index = self._selected_index()
+        if index is not None:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._jobs[index].output.parent)))
 
     def _start_next(self) -> None:
         if self._worker is not None and self._worker.isRunning():
@@ -513,6 +645,12 @@ class MainWindow(QMainWindow):
     def _on_job_finished(self, state: str, returncode: int) -> None:
         if self._active_index is not None:
             self._states[self._active_index] = state
+            job = self._jobs[self._active_index]
+            try:
+                self._history_service.add(job.label, job.output, state, returncode)
+                self._refresh_history()
+            except OSError as error:
+                self.log_view.appendPlainText(f"无法保存任务历史：{error}")
         self._refresh_queue()
         self.progress.setValue(100 if state == "已完成" else self.progress.value())
         self.state_label.setText(f"{state} · 退出码 {returncode}")
