@@ -8,12 +8,14 @@ from pathlib import Path
 from PySide6.QtCore import QSize, Qt, QThread, QUrl, Signal
 from PySide6.QtGui import (
     QCloseEvent,
+    QColor,
     QDesktopServices,
     QDragEnterEvent,
     QDropEvent,
     QIcon,
     QPainter,
     QPainterPath,
+    QPaintEvent,
     QPixmap,
     QResizeEvent,
 )
@@ -23,6 +25,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGraphicsDropShadowEffect,
     QGridLayout,
     QHBoxLayout,
     QInputDialog,
@@ -102,6 +105,44 @@ class AdaptiveStack(QStackedWidget):
         return page.minimumSizeHint() if page is not None else super().minimumSizeHint()
 
 
+class BackgroundCanvas(QWidget):
+    """Paint a muted, cover-scaled custom image behind the dashboard cards."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.picture = QPixmap()
+        self._scaled_picture = QPixmap()
+        self._scaled_size = QSize()
+
+    def set_picture(self, picture: QPixmap) -> None:
+        self.picture = picture
+        self._scaled_size = QSize()
+        self.update()
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        painter = QPainter(self)
+        painter.fillRect(event.rect(), QColor("#fafbfc"))
+        if not self.picture.isNull():
+            if self._scaled_size != self.size():
+                preview_size = QSize(max(1, self.width() // 16),
+                                     max(1, self.height() // 16))
+                preview = self.picture.scaled(
+                    preview_size, Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                self._scaled_picture = preview.scaled(
+                    self.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                self._scaled_size = self.size()
+            scaled = self._scaled_picture
+            painter.drawPixmap(
+                (self.width() - scaled.width()) // 2,
+                (self.height() - scaled.height()) // 2, scaled,
+            )
+            painter.fillRect(event.rect(), QColor(250, 251, 252, 50))
+
+
 class MainWindow(QMainWindow):
     """Each top tab changes settings; source and status stay visible."""
 
@@ -139,7 +180,7 @@ class MainWindow(QMainWindow):
             )
             self.statusBar().addPermanentWidget(self.status_logo)
         self.setCentralWidget(self._build_ui())
-        self._apply_style()
+        self._apply_background()
         self._check_environment()
 
     @staticmethod
@@ -155,14 +196,16 @@ class MainWindow(QMainWindow):
         return card, layout
 
     def _build_ui(self) -> QWidget:
-        root = QWidget(self)
+        root = BackgroundCanvas(self)
+        self.background_canvas = root
         layout = QVBoxLayout(root)
         layout.setContentsMargins(36, 16, 36, 16)
         layout.setSpacing(6)
         self.brand = QLabel()
         self.brand.setObjectName("brand")
         self.brand.setAccessibleName("FFmpeg Studio 品牌横幅")
-        self._banner = QPixmap(str(source_path("banner.jfif")))
+        self._default_banner = QPixmap(str(source_path("banner.jfif")))
+        self._banner = self._default_banner
         if self._banner.isNull():
             self.brand.setText("FFmpeg Studio   /   本地媒体工作台")
         else:
@@ -187,11 +230,14 @@ class MainWindow(QMainWindow):
         self.timeline = TimelinePanel()
         left.addWidget(self.timeline)
         self.pages = AdaptiveStack()
+        self.pages.setObjectName("pageStack")
         self.pages.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         for page in (self._overview_page(), self._transcode_page(), self._split_page(),
                      self._trim_page(), self._audio_page(), self._settings_page()):
             self.pages.addWidget(page)
         self.page_scroll = QScrollArea()
+        self.page_scroll.setObjectName("pageScroll")
+        self.page_scroll.viewport().setObjectName("pageViewport")
         self.page_scroll.setWidgetResizable(True)
         self.page_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.page_scroll.setWidget(self.pages)
@@ -252,6 +298,8 @@ class MainWindow(QMainWindow):
         heading_row.addSpacing(14)
         note = QLabel(description)
         note.setWordWrap(False)
+        note.setMinimumWidth(0)
+        note.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         note.setObjectName("muted")
         note.setToolTip(description)
         heading_row.addWidget(note, 1)
@@ -458,10 +506,32 @@ class MainWindow(QMainWindow):
         form.addRow("ffmpeg.exe", self._path_picker(self.ffmpeg_input, directory=False))
         form.addRow("ffprobe.exe", self._path_picker(self.ffprobe_input, directory=False))
         form.addRow("输出目录", self._path_picker(self.output_input, directory=True))
+        self.background_input = QLineEdit(self._settings.background_image_path)
+        self.background_input.setPlaceholderText("留空：使用默认外观；支持 PNG、JPEG、WebP 等图片")
+        form.addRow(
+            "背景图片",
+            self._path_picker(
+                self.background_input, directory=False,
+                file_filter="图片 (*.png *.jpg *.jpeg *.jfif *.bmp *.webp);;所有文件 (*)",
+            ),
+        )
+        self.background_target = QComboBox()
+        self.background_target.addItem("窗口背景", "window")
+        self.background_target.addItem("替换顶部横幅", "banner")
+        self.background_target.setCurrentIndex(
+            self.background_target.findData(self._settings.background_image_target)
+        )
+        form.addRow("显示位置", self.background_target)
+        self.background_status = QLabel()
+        self.background_status.setObjectName("muted")
+        layout.addWidget(self.background_status)
         button = QPushButton("保存并检测")
         button.setObjectName("primary")
         button.clicked.connect(self._save_settings)
         layout.addWidget(button)
+        reset_background = QPushButton("恢复默认背景")
+        reset_background.clicked.connect(self._clear_background)
+        layout.addWidget(reset_background)
         clear = QPushButton("清除任务历史")
         clear.clicked.connect(self._clear_history)
         layout.addWidget(clear)
@@ -477,7 +547,10 @@ class MainWindow(QMainWindow):
             self._history_service.clear()
             self._refresh_history()
 
-    def _path_picker(self, field: QLineEdit, *, directory: bool) -> QWidget:
+    def _path_picker(
+        self, field: QLineEdit, *, directory: bool,
+        file_filter: str = "可执行文件 (*.exe)",
+    ) -> QWidget:
         container = QWidget()
         row = QHBoxLayout(container)
         row.setContentsMargins(0, 0, 0, 0)
@@ -489,7 +562,7 @@ class MainWindow(QMainWindow):
                 path = QFileDialog.getExistingDirectory(self, "选择输出目录", field.text())
             else:
                 path, _ = QFileDialog.getOpenFileName(
-                    self, "选择 FFmpeg 可执行文件", field.text(), "可执行文件 (*.exe)"
+                    self, "选择本地文件", field.text(), file_filter
                 )
             if path:
                 field.setText(path)
@@ -567,14 +640,62 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("请检查 FFmpeg 设置")
 
     def _save_settings(self) -> None:
+        background = self.background_input.text().strip()
+        if background and (not Path(background).is_file() or QPixmap(background).isNull()):
+            QMessageBox.warning(self, "背景图片不可用", "请选择可读取的本地图片文件。")
+            return
         self._settings = AppSettings(
             ffmpeg_path=self.ffmpeg_input.text().strip(),
             ffprobe_path=self.ffprobe_input.text().strip(),
             default_output_directory=self.output_input.text().strip(),
             max_concurrent_jobs=self._settings.max_concurrent_jobs,
+            background_image_path=background,
+            background_image_target=self.background_target.currentData(),
         )
         self._settings_service.save(self._settings)
+        self._apply_background()
         self._check_environment()
+
+    def _clear_background(self) -> None:
+        self.background_input.clear()
+        self._save_settings()
+
+    def _apply_background(self) -> None:
+        image_path = self._settings.background_image_path
+        picture = (QPixmap(image_path) if image_path and Path(image_path).is_file()
+                   else QPixmap())
+        available = not picture.isNull()
+        banner_target = available and self._settings.background_image_target == "banner"
+        self._banner = picture if banner_target else self._default_banner
+        self.background_canvas.set_picture(
+            picture if available and not banner_target else QPixmap()
+        )
+        translucent = available and not banner_target
+        for card in self.background_canvas.findChildren(QFrame):
+            if card.objectName() in {"card", "formPage", "parameterCell"}:
+                card.setProperty("customBackground", translucent)
+        for label in self.background_canvas.findChildren(QLabel):
+            if label.objectName() == "muted":
+                if translucent:
+                    glow = QGraphicsDropShadowEffect(label)
+                    glow.setBlurRadius(5)
+                    glow.setOffset(0)
+                    glow.setColor(QColor(255, 255, 255, 220))
+                    label.setGraphicsEffect(glow)
+                else:
+                    label.setGraphicsEffect(None)
+        self.page_scroll.viewport().setAutoFillBackground(not translucent)
+        self.pages.setAutoFillBackground(not translucent)
+        self._apply_style(translucent)
+        if image_path and not available:
+            self.background_status.setText("背景图片不可用，已使用默认外观")
+        elif available:
+            position = "顶部横幅" if banner_target else "窗口背景"
+            self.background_status.setText(f"已应用到{position}；请保留原图片文件")
+        else:
+            self.background_status.setText("使用默认外观")
+        if not self._banner.isNull():
+            self._scale_banner(max(1, self.width() - 72))
 
     def _choose_source(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -888,21 +1009,41 @@ class MainWindow(QMainWindow):
             self._scale_banner(max(1, self.width() - 72))
 
     def _scale_banner(self, width: int) -> None:
-        scaled = self._banner.scaledToWidth(width, Qt.TransformationMode.SmoothTransformation)
-        self.brand.setPixmap(rounded_pixmap(scaled, 10))
-        self.brand.setFixedHeight(scaled.height())
+        if self._banner.isNull():
+            return
+        reference = self._default_banner if not self._default_banner.isNull() else self._banner
+        height = max(1, round(width * reference.height() / reference.width()))
+        scaled = self._banner.scaled(
+            QSize(width, height), Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        cropped = scaled.copy((scaled.width() - width) // 2,
+                              (scaled.height() - height) // 2, width, height)
+        self.brand.setPixmap(rounded_pixmap(cropped, 10))
+        self.brand.setFixedHeight(height)
 
-    def _apply_style(self) -> None:
-        self.setStyleSheet("""
-            QMainWindow, QWidget { background: #fafbfc; color: #20252b; font-size: 13px; }
+    def _apply_style(self, translucent: bool = False) -> None:
+        style = """
+            QMainWindow, QWidget { color: #20252b; font-size: 13px; }
+            QMainWindow { background: #fafbfc; }
             QLabel#brand { font-size: 19px; font-weight: 700; padding: 0; }
-            QLabel#cardTitle { font-size: 16px; font-weight: 700; }
-            QLabel#muted { color: #65707b; }
+            QLabel#cardTitle { font-size: 18px; font-weight: 700; }
+            QLabel#muted { color: #53616d; font-size: 12px; }
             QFrame#card { background: white; border: 1px solid #e4e8ec; border-radius: 9px; }
             QFrame#formPage { background: white; border: 1px solid #e4e8ec;
                 border-radius: 9px; }
             QFrame#parameterCell { background: #f8fafb; border: 1px solid #e2e8ed;
                 border-radius: 6px; }
+            QFrame#card[customBackground="true"],
+            QFrame#formPage[customBackground="true"] {
+                background: rgba(255, 255, 255, 140);
+            }
+            QFrame#parameterCell[customBackground="true"] {
+                background: rgba(248, 250, 251, 125);
+            }
+            QFrame[customBackground="true"] QLabel#muted {
+                color: #2d3c47;
+            }
             QFrame#card QLabel, QFrame#formPage QLabel { background: transparent; }
             QTabBar { background: #fafbfc; border-bottom: 1px solid #e5e9ed; }
             QTabBar::tab { padding: 11px 18px; color: #5d6874;
@@ -914,12 +1055,37 @@ class MainWindow(QMainWindow):
             QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QListWidget, QPlainTextEdit {
                 border: 1px solid #dce2e7; border-radius: 5px; padding: 6px; background: white;
             }
+            QComboBox, QSpinBox, QDoubleSpinBox { font-size: 12px; }
             QPushButton { border: 1px solid #dce2e7; border-radius: 5px;
-                padding: 8px 13px; background: white; }
+                padding: 8px 13px; background: white; font-size: 12px; }
             QPushButton:hover { border-color: #1987ce; }
             QPushButton#primary { background: #20252b; color: white;
                 border-color: #20252b; font-weight: 600; }
             QFrame#formPage QPushButton { padding: 5px 10px; }
             QProgressBar { border: 0; border-radius: 3px; background: #e7ebef; height: 8px; }
             QProgressBar::chunk { background: #168bd3; border-radius: 3px; }
-        """)
+        """
+        if translucent:
+            style += """
+                QScrollArea#pageScroll {
+                    background: rgba(255, 255, 255, 140);
+                    border: 1px solid #e4e8ec;
+                    border-radius: 9px;
+                }
+                QFrame#formPage[customBackground="true"] {
+                    background: transparent; border: none;
+                }
+                QWidget#pageViewport, QStackedWidget#pageStack {
+                    background: transparent; border: none;
+                }
+                QTabBar { background: rgba(250, 251, 252, 110); }
+                QTabBar::tab { background: transparent; }
+                QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox,
+                QListWidget, QPlainTextEdit, QPushButton {
+                    background: rgba(255, 255, 255, 30);
+                }
+                QComboBox QAbstractItemView { background: rgba(255, 255, 255, 180); }
+                QPushButton#primary { background: rgba(32, 37, 43, 235); }
+                QProgressBar { background: rgba(231, 235, 239, 170); }
+            """
+        self.setStyleSheet(style)

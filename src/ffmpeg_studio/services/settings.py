@@ -17,6 +17,8 @@ class AppSettings:
     ffprobe_path: str = ""
     default_output_directory: str = ""
     max_concurrent_jobs: int = 1
+    background_image_path: str = ""
+    background_image_target: str = "window"
 
 
 class SettingsService:
@@ -32,6 +34,11 @@ class SettingsService:
             ffprobe_path=self._backend.value("ffprobe/path", "", type=str),
             default_output_directory=self._backend.value("output/default_directory", "", type=str),
             max_concurrent_jobs=max(1, min(max_jobs, MAX_CONCURRENT_JOBS)),
+            background_image_path=self._backend.value("appearance/background_image", "", type=str),
+            background_image_target=(
+                "banner" if self._backend.value("appearance/background_target", "window", type=str)
+                == "banner" else "window"
+            ),
         )
 
     def save(self, settings: AppSettings) -> None:
@@ -40,6 +47,11 @@ class SettingsService:
         self._backend.setValue("ffprobe/path", settings.ffprobe_path)
         self._backend.setValue("output/default_directory", settings.default_output_directory)
         self._backend.setValue("processing/max_concurrent_jobs", safe_jobs)
+        self._backend.setValue("appearance/background_image", settings.background_image_path)
+        self._backend.setValue(
+            "appearance/background_target",
+            "banner" if settings.background_image_target == "banner" else "window",
+        )
         self._backend.sync()
 
     @staticmethod
