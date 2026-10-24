@@ -1,6 +1,6 @@
 # FFmpeg Studio
 
-首次使用可先阅读 [HTML 快速入门](QUICKSTART.html)；其中为 `source/UI.PNG` 预留了界面截图位置。
+首次使用可先阅读 [HTML 快速入门](QUICKSTART.html)；其中为 `FFmpeg Studio/_internal/source/UI.PNG` 预留了界面截图位置。
 
 FFmpeg Studio 1.0.4 是一款 Windows 本地媒体处理工具，使用 Python 与 PySide6 将常用 FFmpeg 命令变成图形界面。选择视频、设置参数、加入队列后，即可在界面中查看处理进度、实际命令和执行日志。媒体文件在本机处理，不上传到云端。
 
@@ -34,7 +34,7 @@ FFmpeg Studio 1.0.4 是一款 Windows 本地媒体处理工具，使用 Python �
 
 ## Windows 试用包
 
-构建结果在 `env/dist/FFmpeg Studio/`，运行其中的 `FFmpeg Studio.exe`。复制或分发时须保留**整个** `FFmpeg Studio` 目录，不能只复制 exe。横幅使用 `source/banner.jfif`，右下状态栏使用 `source/logo.jfif`，窗口图标使用 `source/icon.jfif`，exe 使用 `source/icon2.jpg` 转换的图标。
+构建结果在 `FFmpeg Studio/`，运行其中的 `FFmpeg Studio.exe`。复制或分发时须保留**整个** `FFmpeg Studio` 目录，不能只复制 exe。横幅使用 `FFmpeg Studio/_internal/source/banner.jfif`，右下状态栏使用 `FFmpeg Studio/_internal/source/logo.jfif`，窗口图标使用 `FFmpeg Studio/_internal/source/icon.jfif`，exe 使用 `FFmpeg Studio/_internal/source/icon2.jpg` 转换的图标。
 
 本试用包未随附 FFmpeg/FFprobe，也不自动下载或安装。若概览页显示“未找到”，先检查设置中的两个路径是否指向实际存在的 `.exe`，并确认它们可以在本机运行。若横幅或图标缺失，请确认试用包目录完整。
 
