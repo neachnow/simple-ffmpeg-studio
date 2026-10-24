@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="FFmpeg Studio 1.0.4 快速入门：配置 FFmpeg、导入视频、使用时间轴并运行任务。">
+  <title>快速入门 · FFmpeg Studio</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #182936;
+      --muted: #526879;
+      --line: #d8e6e9;
+      --cyan: #13b8bc;
+      --blue: #167db6;
+      --paper: #ffffff;
+      --wash: #f2f8f9;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: linear-gradient(180deg, #e8f7f6 0, #f5f9fa 340px, #f5f9fa 100%);
+      color: var(--ink);
+      font: 16px/1.7 "Microsoft YaHei UI", "Noto Sans SC", "Segoe UI", sans-serif;
+    }
+    a { color: #08689c; }
+    a:focus-visible { outline: 3px solid var(--cyan); outline-offset: 3px; }
+    code, pre { font-family: Consolas, "Cascadia Code", monospace; }
+    code { overflow-wrap: anywhere; }
+    .wrap { width: min(1100px, calc(100% - 36px)); margin-inline: auto; }
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      padding-block: 22px; border-bottom: 1px solid rgba(24, 41, 54, .12);
+    }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 750; letter-spacing: .02em; }
+    .brand-mark {
+      display: inline-grid; place-items: center; width: 34px; height: 34px;
+      border-radius: 9px; background: #18303c; color: #68ebea; font-size: 20px;
+    }
+    .version { color: var(--muted); font-size: 13px; }
+    .hero { padding: 54px 0 36px; }
+    .eyebrow { color: #087f86; font-size: 13px; font-weight: 750; letter-spacing: .16em; }
+    h1 { margin: 10px 0 14px; font-size: clamp(34px, 5vw, 58px); line-height: 1.13; letter-spacing: -.04em; }
+    .lead { max-width: 740px; margin: 0; color: var(--muted); font-size: 18px; }
+    .jump { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 27px; }
+    .jump a {
+      padding: 9px 15px; border: 1px solid var(--line); border-radius: 999px;
+      background: rgba(255,255,255,.74); color: var(--ink); text-decoration: none; font-size: 14px;
+    }
+    .jump a:hover { border-color: var(--cyan); }
+    section { scroll-margin-top: 26px; }
+    .section-title { display: flex; align-items: baseline; gap: 14px; margin: 42px 0 18px; }
+    .section-title h2 { margin: 0; font-size: clamp(24px, 3vw, 31px); letter-spacing: -.03em; }
+    .section-title span { color: var(--muted); font-size: 13px; }
+    .panel {
+      background: var(--paper); border: 1px solid var(--line); border-radius: 18px;
+      box-shadow: 0 12px 36px rgba(29, 65, 75, .055);
+    }
+    .preview { overflow: hidden; margin: 0; }
+    .preview-head {
+      display: flex; justify-content: space-between; gap: 12px; padding: 14px 20px;
+      border-bottom: 1px solid var(--line); font-size: 14px;
+    }
+    .preview-head strong { font-size: 15px; }
+    .preview-head span { color: var(--muted); }
+    .screen {
+      display: grid; place-items: center; min-height: 420px; padding: 20px;
+      background: repeating-linear-gradient(135deg, #e5f3f5 0 16px, #edf7f8 16px 32px);
+    }
+    .screen img { display: block; max-width: 100%; height: auto; border-radius: 10px; box-shadow: 0 14px 36px rgba(0,0,0,.14); }
+    [hidden] { display: none !important; }
+    .placeholder {
+      width: min(100%, 830px); min-height: 340px; display: grid; align-content: center;
+      justify-items: center; gap: 10px; padding: 28px; text-align: center;
+      border: 2px dashed #84bbc3; border-radius: 14px; background: rgba(255,255,255,.7);
+    }
+    .placeholder-icon { color: #168a9a; font-size: 46px; line-height: 1; }
+    .placeholder strong { font-size: 21px; }
+    .placeholder p { margin: 0; color: var(--muted); }
+    .preview figcaption { padding: 11px 20px; color: var(--muted); font-size: 13px; }
+    .steps { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px; }
+    .step { padding: 23px 24px; }
+    .step-head { display: flex; align-items: center; gap: 12px; }
+    .number {
+      display: inline-grid; place-items: center; flex: 0 0 auto; width: 32px; height: 32px;
+      border-radius: 10px; background: #def6f5; color: #087a82; font-weight: 800;
+    }
+    .step h3 { margin: 0; font-size: 19px; }
+    .step p { margin: 11px 0 0; color: var(--muted); }
+    .path {
+      display: block; margin-top: 11px; padding: 9px 11px; background: var(--wash);
+      border: 1px solid var(--line); border-radius: 8px; color: #183b48; font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+    .note {
+      margin-top: 16px; padding: 17px 20px; border-left: 4px solid var(--blue);
+      border-radius: 0 12px 12px 0; background: #eaf4fb;
+    }
+    .note strong { display: block; margin-bottom: 3px; }
+    .note p { margin: 0; color: #39556a; }
+    .features { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; }
+    .feature { padding: 19px 20px; }
+    .feature h3 { margin: 0 0 5px; font-size: 17px; }
+    .feature p { margin: 0; color: var(--muted); font-size: 14px; }
+    .help { padding: 10px 24px; }
+    details { padding: 14px 0; border-bottom: 1px solid var(--line); }
+    details:last-child { border-bottom: 0; }
+    summary { cursor: pointer; font-weight: 700; }
+    details p { margin: 8px 0 0; color: var(--muted); }
+    footer { margin-top: 50px; padding: 25px 0 38px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+    @media (max-width: 760px) {
+      .steps, .features { grid-template-columns: 1fr; }
+      .screen { min-height: 300px; padding: 12px; }
+      .placeholder { min-height: 260px; }
+      .preview-head { flex-direction: column; gap: 0; }
+    }
+    @media print {
+      body { background: white; }
+      .jump { display: none; }
+      .panel { box-shadow: none; }
+      .steps, .features { break-inside: avoid; }
+      details { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar wrap">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">▶</span> FFmpeg Studio</div>
+    <span class="version">Windows 快速入门 · v1.0.4</span>
+  </header>
+
+  <main class="wrap">
+    <div class="hero">
+      <div class="eyebrow">QUICKSTART GUIDE</div>
+      <h1>几分钟，完成第一次<br>本地视频处理。</h1>
+      <p class="lead">按顺序准备 FFmpeg、导入视频、选择功能并启动队列。所有媒体处理都在本机完成。</p>
+      <nav class="jump" aria-label="页面导航">
+        <a href="#preview">界面预览</a><a href="#setup">四步上手</a>
+        <a href="#features">功能速览</a><a href="#faq">常见问题</a>
+      </nav>
+    </div>
+
+    <section id="preview" aria-labelledby="preview-title">
+      <div class="section-title"><h2 id="preview-title">界面预览</h2><span>UI OVERVIEW</span></div>
+      <figure class="preview panel">
+        <div class="preview-head"><strong>FFmpeg Studio 主界面</strong><span>源视频 · 时间轴 · 任务状态</span></div>
+        <div class="screen">
+          <img id="ui-image" src="source/UI.PNG" alt="FFmpeg Studio 用户界面截图" hidden>
+          <div id="ui-placeholder" class="placeholder">
+            <span class="placeholder-icon" aria-hidden="true">▧</span>
+            <strong>UI 图片放置框</strong>
+            <p>将截图保存为 <code>source\UI.PNG</code>，刷新本页后自动显示。</p>
+            <p>此文件目前是预留位置，不影响软件运行。</p>
+          </div>
+        </div>
+        <figcaption>本 HTML 位于项目根目录，因此图片引用路径为 <code>source/UI.PNG</code>。</figcaption>
+      </figure>
+    </section>
+
+    <section id="setup" aria-labelledby="setup-title">
+      <div class="section-title"><h2 id="setup-title">四步上手</h2><span>FROM INSTALL TO OUTPUT</span></div>
+      <div class="steps">
+        <article class="step panel">
+          <div class="step-head"><span class="number">1</span><h3>保留完整程序目录</h3></div>
+          <p>运行 <code>FFmpeg Studio.exe</code>。复制或分发时，请连同旁边的 <code>_internal</code> 文件夹一起保留；只复制 exe 会丢失运行库、Banner 和图标。</p>
+          <code class="path">FFmpeg Studio\FFmpeg Studio.exe<br>FFmpeg Studio\_internal\source\banner.jfif</code>
+        </article>
+        <article class="step panel">
+          <div class="step-head"><span class="number">2</span><h3>配置 FFmpeg 与 FFprobe</h3></div>
+          <p>本程序不附带 FFmpeg。在“设置 / Settings”中分别选择 <code>ffmpeg.exe</code> 和 <code>ffprobe.exe</code> 的完整路径，然后点击“保存并检测”。</p>
+          <code class="path">示例：C:\Tools\ffmpeg\bin\ffmpeg.exe<br>示例：C:\Tools\ffmpeg\bin\ffprobe.exe</code>
+        </article>
+        <article class="step panel">
+          <div class="step-head"><span class="number">3</span><h3>导入视频并设置参数</h3></div>
+          <p>拖入视频或点击“选择视频”。左侧会显示时长、分辨率和音轨。切换“转码”“视频分割”“裁剪”或“提取音频”标签，设置参数；时间轴可缩放并选择切点或范围。</p>
+        </article>
+        <article class="step panel">
+          <div class="step-head"><span class="number">4</span><h3>加入队列并开始处理</h3></div>
+          <p>点击当前功能页的“添加任务”，再到右侧点击“开始队列”。右侧可查看进度、命令和日志；处理完成后使用“打开位置”查看文件。</p>
+          <code class="path">默认输出：源视频所在目录\FFmpeg Studio Output\</code>
+        </article>
+      </div>
+      <aside class="note">
+        <strong>文件安全</strong>
+        <p>程序不会覆盖源视频；遇到同名输出会自动编号。FFmpeg 与 FFprobe 可以放在任意目录，只需在设置中分别选对路径。</p>
+      </aside>
+    </section>
+
+    <section id="features" aria-labelledby="features-title">
+      <div class="section-title"><h2 id="features-title">功能速览</h2><span>COMMON WORKFLOWS</span></div>
+      <div class="features">
+        <article class="feature panel"><h3>转码 / Transcode</h3><p>输出 MP4，按高质量、平衡或小体积预设调整画质。</p></article>
+        <article class="feature panel"><h3>视频分割 / Split Video</h3><p>按每段时长分割，或直接在时间轴上添加任意切点。</p></article>
+        <article class="feature panel"><h3>裁剪 / Trim</h3><p>选择入点和出点，也可设置旋转、翻转及画面裁切。</p></article>
+        <article class="feature panel"><h3>提取音频 / Extract Audio</h3><p>导出 MP3、AAC、WAV 或 FLAC，支持完整或分段时长。</p></article>
+        <article class="feature panel"><h3>时间轴 / Timeline</h3><p>查看视频缩略图和时长标尺，缩放、拖动并微调切点。</p></article>
+        <article class="feature panel"><h3>任务队列 / Queue</h3><p>查看处理进度与日志，调整等待任务顺序或重试失败任务。</p></article>
+      </div>
+    </section>
+
+    <section id="faq" aria-labelledby="faq-title">
+      <div class="section-title"><h2 id="faq-title">常见问题</h2><span>TROUBLESHOOTING</span></div>
+      <div class="help panel">
+        <details open>
+          <summary>提示找不到 FFprobe，明明已经有 FFmpeg？</summary>
+          <p>两者是不同的 exe，必须在设置中分别指定。把程序文件夹放在 FFmpeg 旁边不会自动识别；也可以将 FFmpeg 的 <code>bin</code> 目录加入 Windows PATH。</p>
+        </details>
+        <details>
+          <summary>为什么显示自选图片，却看不到内置 Banner 或透明背景？</summary>
+          <p>“显示位置”一次只应用一种模式。要保留内置 Banner 并显示透明背景，请选择“窗口背景”，再点击“保存并检测”；选择“替换顶部横幅”只会更换 Banner。点击“恢复默认背景”可清除自选图。</p>
+        </details>
+        <details>
+          <summary>为什么导入视频时反复弹出命令行窗口？</summary>
+          <p>请确认运行的是 1.0.4 或更新版本，并替换整个打包目录。旧版 exe 不会因旁边有新文件而自动升级。</p>
+        </details>
+        <details>
+          <summary>复制到另一台电脑后图片或 FFmpeg 路径失效？</summary>
+          <p>自选背景只保存文件路径，不会复制进程序包；请在新电脑重新选择图片。FFmpeg/FFprobe 也需要在新电脑准备并重新设置。内置 Banner 随完整的 <code>_internal</code> 目录提供。</p>
+        </details>
+      </div>
+    </section>
+  </main>
+
+  <footer><div class="wrap">FFmpeg Studio · 本地媒体处理工具 · <a href="README.md">完整使用说明</a></div></footer>
+  <script>
+    const image = document.getElementById("ui-image");
+    const placeholder = document.getElementById("ui-placeholder");
+    const syncPreview = () => {
+      const available = image.complete && image.naturalWidth > 0;
+      image.hidden = !available;
+      placeholder.hidden = available;
+    };
+    image.addEventListener("load", syncPreview);
+    image.addEventListener("error", syncPreview);
+    syncPreview();
+  </script>
+</body>
+</html>

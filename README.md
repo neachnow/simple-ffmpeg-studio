@@ -1,5 +1,7 @@
 # FFmpeg Studio
 
+首次使用可先阅读 [HTML 快速入门](QUICKSTART.html)；其中为 `source/UI.PNG` 预留了界面截图位置。
+
 FFmpeg Studio 1.0.4 是一款 Windows 本地媒体处理工具，使用 Python 与 PySide6 将常用 FFmpeg 命令变成图形界面。选择视频、设置参数、加入队列后，即可在界面中查看处理进度、实际命令和执行日志。媒体文件在本机处理，不上传到云端。
 
 > **使用前必须准备 FFmpeg 和 FFprobe。** FFmpeg Studio 是图形界面，不是编码器；没有可用的 `ffmpeg.exe` 与 `ffprobe.exe` 就无法分析或处理媒体。Windows 试用包**不内置**这两个程序。首次打开后，请在“设置 / Settings”页分别指定它们的完整路径，再点击“保存并检测”。`ffplay.exe` 不是必需的。

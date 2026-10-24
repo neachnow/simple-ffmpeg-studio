@@ -18,6 +18,7 @@
 | 2026-10-24 | M6c：1.0.3 发布及 Windows 打包 | 已完成 | 按后续界面要求将原定 1.0.2 调整为 1.0.3；在 Python 3.12 `env` 重装项目后 `pytest`：32 passed（含 `source` 媒体集成测试）；`ruff check .`、源码 `--smoke-test` 通过。PyInstaller 构建通过，成品在仅含 Windows System32 的 PATH 下 `--smoke-test` 退出码 0；FFmpeg/FFprobe 不随包分发。 | `feat: release FFmpeg Studio 1.0.3` |
 | 2026-10-24 | M6d：README 内嵌 UI6 界面预览 | 已完成 | 检查 `docs/UI6.png` 可读取，并验证 README 中的相对图片路径指向该文件；完整测试和静态检查通过。 | `docs: show UI6 preview in README` |
 | 2026-10-24 | M7：1.0.4 Windows 子进程静默启动 | 已完成 | 统一为环境检测、媒体探测、时间轴缩略图和队列任务传入 Windows `CREATE_NO_WINDOW`；`pytest`：33 passed（含 `source` 视频缩略图及 UI 转码实跑），`ruff check src tests/test_ffmpeg.py tests/test_timeline.py` 与源码启动检查通过。PyInstaller 构建成功，成品在仅含 Windows System32 的 PATH 下 `--smoke-test` 退出码 0。确认旧复制目录仍是用户文件，未覆盖；README 补充 Banner 与窗口背景模式说明。 | `fix: hide FFmpeg subprocess windows` |
+| 2026-10-24 | M8：HTML 快速入门与 UI 图片占位 | 已完成 | `pytest`：34 passed；`ruff check src tests/test_quickstart.py` 通过。结构测试验证 HTML、导航锚点、README 链接、`source/UI.PNG` 路径及缺图回退逻辑。受浏览器本地 `file://` 安全限制，未在浏览器做视觉预览；用户可本机打开 HTML 检查。 | `docs: add standalone HTML quickstart` |
 
 ## 环境记录
 
